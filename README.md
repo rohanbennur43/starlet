@@ -7,15 +7,7 @@ Spatial tiling, MVT generation, and tile serving for geospatial data.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[all]"
-```
-
-Install only the extras you need:
-
-```bash
-pip install -e ".[server]"   # tile server only
-pip install -e ".[mvt]"      # MVT generation only
-pip install -e ".[llm]"      # LLM styling suggestions
+pip install -e .
 ```
 
 ## CLI
