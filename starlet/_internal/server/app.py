@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, List, Optional
-
 import json
 import logging
 import os
@@ -16,8 +15,9 @@ from flask_cors import CORS
 from .tiler.tiler import VectorTiler
 from .download_service import DatasetFeatureService
 from .catalog.embedder import GeminiTextEmbedder
-from .catalog.index import CATALOG_FILENAME, load_catalog_index
-from .catalog.router import retrieve_top_k
+from .catalog.index import CATALOG_FILENAME
+from .catalog.router import CatalogRouter, SearchBackend
+from .catalog.pgvector_store import PgVectorConfig, PgVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +27,6 @@ def create_app(
     cache_size: int = 256,
     log_level: Optional[str] = None,
 ) -> Flask:
-    """Create and configure a Flask tile server application.
-
-    Parameters
-    ----------
-    data_dir : str
-        Root directory containing dataset subdirectories.
-    cache_size : int
-        Number of tiles to keep in the in-memory LRU cache.
-    log_level : str, optional
-        Logging level (e.g. "INFO", "DEBUG"). Defaults to ``LOG_LEVEL`` env
-        var or ``"INFO"``.
-
-    Returns
-    -------
-    Flask
-        Configured Flask application ready to be served.
-    """
     level = log_level or os.environ.get("LOG_LEVEL", "INFO")
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -58,10 +41,9 @@ def create_app(
     tiler_cache: dict[str, VectorTiler] = {}
     feature_service = DatasetFeatureService(data_root)
 
-    _catalog_cache: Dict[str, Any] = {
-        "index": None,
+    _catalog_runtime: Dict[str, Any] = {
+        "router": None,
         "mtime": None,
-        "embedder": None,
     }
 
     def get_tiler(dataset: str) -> VectorTiler:
@@ -114,19 +96,19 @@ def create_app(
 
         if requested_features:
             attr_subset = [a for a in attributes if a.get("name") in requested_features]
-            if instruction_override:
-                instruction = instruction_override
-            else:
-                instruction = (
-                    "Generate styling suggestions for these specific attributes: "
-                    + ", ".join(requested_features)
-                )
+            instruction = (
+                instruction_override
+                if instruction_override
+                else "Generate styling suggestions for these specific attributes: "
+                + ", ".join(requested_features)
+            )
         else:
             attr_subset = attributes
-            if instruction_override:
-                instruction = instruction_override
-            else:
-                instruction = "Analyze all attributes and suggest the best styling rules for map visualization."
+            instruction = (
+                instruction_override
+                if instruction_override
+                else "Analyze all attributes and suggest the best styling rules for map visualization."
+            )
 
         if not attr_subset:
             return []
@@ -150,8 +132,41 @@ def create_app(
             return []
         return styles
 
-    def _get_catalog_index() -> Dict[str, Any]:
-        index_path = data_root / "_catalog" / CATALOG_FILENAME
+    def _catalog_index_path() -> Path:
+        return data_root / "_catalog" / CATALOG_FILENAME
+
+    def _catalog_backend_from_env() -> SearchBackend:
+        value = os.environ.get("CATALOG_SEARCH_BACKEND", "auto").strip().lower()
+        if value == "pgvector":
+            return SearchBackend.PGVECTOR
+        if value == "npy":
+            return SearchBackend.NPY
+        return SearchBackend.AUTO
+
+    def _build_catalog_router() -> CatalogRouter:
+        index_path = _catalog_index_path()
+        if not index_path.exists():
+            raise FileNotFoundError(
+                f"Catalogue index not found at {index_path}. "
+                f"Build it first with catalog/index.py."
+            )
+
+        embedder = GeminiTextEmbedder()
+        backend = _catalog_backend_from_env()
+
+        pg_store = None
+        if backend in (SearchBackend.AUTO, SearchBackend.PGVECTOR):
+            pg_store = PgVectorStore(PgVectorConfig())
+
+        return CatalogRouter(
+            index_dir_or_file=str(index_path.parent),
+            embedder=embedder,
+            backend=backend,
+            pgvector_store=pg_store,
+        )
+
+    def _get_catalog_router() -> CatalogRouter:
+        index_path = _catalog_index_path()
         if not index_path.exists():
             raise FileNotFoundError(
                 f"Catalogue index not found at {index_path}. "
@@ -159,23 +174,18 @@ def create_app(
             )
 
         mtime = index_path.stat().st_mtime
-        if _catalog_cache["index"] is None or _catalog_cache["mtime"] != mtime:
-            _catalog_cache["index"] = load_catalog_index(index_path)
-            _catalog_cache["mtime"] = mtime
-        return _catalog_cache["index"]
+        if _catalog_runtime["router"] is None or _catalog_runtime["mtime"] != mtime:
+            _catalog_runtime["router"] = _build_catalog_router()
+            _catalog_runtime["mtime"] = mtime
+        return _catalog_runtime["router"]
 
-    def _get_catalog_embedder() -> GeminiTextEmbedder:
-        if _catalog_cache["embedder"] is None:
-            _catalog_cache["embedder"] = GeminiTextEmbedder()
-        return _catalog_cache["embedder"]
-
-    def _candidate_payload_for_llm(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _candidate_payload_for_llm(candidates) -> List[Dict[str, Any]]:
         payload = []
         for c in candidates:
             payload.append({
-                "dataset": c.get("dataset"),
-                "score": round(float(c.get("score", 0.0)), 6),
-                "summary": c.get("summary"),
+                "dataset": c.dataset,
+                "score": round(float(c.score), 6),
+                "summary": c.summary,
             })
         return payload
 
@@ -185,8 +195,10 @@ def create_app(
         tiler = get_tiler(dataset)
         data = tiler.get_tile(z, x, y)
         elapsed_ms = (perf_counter() - t0) * 1000
-        logger.info("[TileRequest] dataset=%s z=%d x=%d y=%d bytes=%d elapsed=%.1fms",
-                    dataset, z, x, y, len(data), elapsed_ms)
+        logger.info(
+            "[TileRequest] dataset=%s z=%d x=%d y=%d bytes=%d elapsed=%.1fms",
+            dataset, z, x, y, len(data), elapsed_ms
+        )
         return Response(data, mimetype="application/vnd.mapbox-vector-tile")
 
     @app.get("/api/datasets")
@@ -212,7 +224,7 @@ def create_app(
     @app.get("/datasets/<dataset>/features.<format>")
     def download_features(dataset, format):
         try:
-            mbr_string = request.args.get('mbr', default=None)
+            mbr_string = request.args.get("mbr", default=None)
             feature_stream = feature_service.get_features_stream(dataset, format, mbr_string)
             mime_type = feature_service.get_mime_type(format)
             if mbr_string:
@@ -392,14 +404,8 @@ def create_app(
             k = 5
 
         try:
-            catalog_index = _get_catalog_index()
-            embedder = _get_catalog_embedder()
-            candidates = retrieve_top_k(
-                query=user_query,
-                catalog_index=catalog_index,
-                embedder=embedder,
-                k=k,
-            )
+            router = _get_catalog_router()
+            candidates = router.search(user_query, k=k)
         except FileNotFoundError as e:
             return json.dumps({"error": str(e)}), 503, json_ct
         except Exception as e:
@@ -421,7 +427,6 @@ def create_app(
             )
 
             from .llm.factory import LLMFactory
-
             provider = LLMFactory.get_default_provider()
             raw = provider.generate_response(prompt)
             routing = _extract_first_json_object(raw)
@@ -429,14 +434,14 @@ def create_app(
             logger.exception("[QueryStyles] LLM dataset routing failed")
             return json.dumps({"error": f"LLM dataset routing failed: {e}"}), 500, json_ct
 
-        candidate_by_name = {c["dataset"]: c for c in candidates}
+        candidate_by_name = {c.dataset: c for c in candidates}
         selected_dataset = routing.get("selected_dataset")
         if selected_dataset not in candidate_by_name:
             logger.warning(
                 "[QueryStyles] LLM selected invalid dataset '%s'; falling back to top candidate",
                 selected_dataset,
             )
-            selected_dataset = candidates[0]["dataset"]
+            selected_dataset = candidates[0].dataset
 
         selected_attributes = routing.get("selected_attributes")
         if not isinstance(selected_attributes, list):
@@ -491,7 +496,7 @@ def create_app(
                 "reason": routing.get("reason"),
                 "selected_attributes": filtered_attributes,
                 "style_intent": routing.get("style_intent"),
-                "selected_dataset_score": candidate_by_name[selected_dataset]["score"],
+                "selected_dataset_score": candidate_by_name[selected_dataset].score,
             },
             "styles": styles,
         }
