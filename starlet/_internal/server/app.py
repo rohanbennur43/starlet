@@ -86,9 +86,11 @@ def create_app(
         "mtime": None,
     }
 
-
     _build_jobs: Dict[str, Dict[str, Any]] = {}
     _build_jobs_lock = Lock()
+
+    _tile_metrics: Dict[str, Dict[str, Any]] = {}
+    _tile_metrics_lock = Lock()
 
     uploads_root = data_root / "_uploads"
     uploads_root.mkdir(parents=True, exist_ok=True)
@@ -105,9 +107,24 @@ def create_app(
             job = _build_jobs.get(job_id)
             return dict(job) if job else None
 
+    def _set_tile_metric(dataset: str, metric: Dict[str, Any]) -> None:
+        with _tile_metrics_lock:
+            _tile_metrics[dataset] = dict(metric)
+
+    def _get_tile_metric(dataset: str) -> Optional[Dict[str, Any]]:
+        with _tile_metrics_lock:
+            metric = _tile_metrics.get(dataset)
+            return dict(metric) if metric else None
+
     def _safe_int(value: Any, fallback: int) -> int:
         try:
             return int(value)
+        except Exception:
+            return fallback
+
+    def _safe_float(value: Any, fallback: float) -> float:
+        try:
+            return float(value)
         except Exception:
             return fallback
 
@@ -117,6 +134,17 @@ def create_app(
         cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", cleaned)
         cleaned = re.sub(r"_+", "_", cleaned).strip("_")
         return cleaned or f"dataset_{uuid4().hex[:8]}"
+
+    def _human_size(num_bytes: int) -> str:
+        size = float(max(0, int(num_bytes)))
+        units = ["B", "KB", "MB", "GB", "TB"]
+        index = 0
+        while size >= 1024.0 and index < len(units) - 1:
+            size /= 1024.0
+            index += 1
+        if index == 0:
+            return f"{int(size)} {units[index]}"
+        return f"{size:.1f} {units[index]}"
 
     def _apply_pgvector_env_from_request(payload: Dict[str, Any]) -> bool:
         sync_pgvector = str(payload.get("sync_pgvector", "")).strip().lower() in {"1", "true", "yes", "on"}
@@ -267,6 +295,18 @@ def create_app(
             _catalog_runtime["mtime"] = mtime
         return _catalog_runtime["router"]
 
+    def _load_catalog_index_json() -> Dict[str, Any]:
+        index_path = _catalog_index_path()
+        if not index_path.exists():
+            return {"entries": [], "entry_count": 0}
+        with open(index_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _load_catalog_entry_map() -> Dict[str, Dict[str, Any]]:
+        catalog = _load_catalog_index_json()
+        entries = catalog.get("entries") or []
+        return {str(entry.get("dataset")): entry for entry in entries if isinstance(entry, dict)}
+
     def _load_stats_for_dataset(dataset: str) -> Dict[str, Any]:
         dataset_path = data_root / dataset
         if not dataset_path.is_dir():
@@ -283,16 +323,53 @@ def create_app(
         path = data_root / dataset
         return path.exists() and path.is_dir()
 
+    def _summarize_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+        attributes = stats.get("attributes") or []
+        geometry_types: List[str] = []
+        geometry_attribute_count = 0
+        non_geometry_attribute_count = 0
+        sample_attributes: List[str] = []
+
+        for attr in attributes:
+            if not isinstance(attr, dict):
+                continue
+
+            attr_name = _normalize_unicode_text(attr.get("name"))
+            stats_obj = attr.get("stats") or {}
+
+            if "geom_types" in stats_obj:
+                geometry_attribute_count += 1
+                for geom_type in (stats_obj.get("geom_types") or {}).keys():
+                    geom_type_lc = str(geom_type).lower()
+                    if geom_type_lc not in geometry_types:
+                        geometry_types.append(geom_type_lc)
+            else:
+                non_geometry_attribute_count += 1
+                if attr_name:
+                    sample_attributes.append(attr_name)
+
+        return {
+            "attribute_count": non_geometry_attribute_count,
+            "geometry_attribute_count": geometry_attribute_count,
+            "geometry_types": geometry_types,
+            "sample_attributes": sample_attributes[:12],
+        }
+
     def _dataset_metadata(dataset: str) -> Dict[str, Any]:
         dataset_path = data_root / dataset
         if not dataset_path.exists() or not dataset_path.is_dir():
             raise FileNotFoundError(f"Dataset not found: {dataset}")
 
+        size = sum(f.stat().st_size for f in dataset_path.rglob("*") if f.is_file())
+        file_count = sum(1 for f in dataset_path.rglob("*") if f.is_file())
+
         return {
             "id": dataset,
             "name": dataset.replace("_", " ").title(),
-            "size": sum(f.stat().st_size for f in dataset_path.rglob("*") if f.is_file()),
-            "file_count": sum(1 for f in dataset_path.rglob("*") if f.is_file()),
+            "size": size,
+            "size_human": _human_size(size),
+            "file_count": file_count,
+            "path": str(dataset_path),
         }
 
     def _list_dataset_metadata(query: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -301,46 +378,39 @@ def create_app(
             return datasets
 
         query_lc = _normalize_unicode_text(query).strip().lower()
+        catalog_map = _load_catalog_entry_map()
 
         for d in sorted(data_root.iterdir()):
             if not d.is_dir():
                 continue
             if d.name.startswith("."):
                 continue
-            if d.name == "_catalog":
+            if d.name in {"_catalog", "_uploads"}:
                 continue
+
+            size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            entry = catalog_map.get(d.name) or {}
+            summary = entry.get("summary") or {}
 
             item = {
                 "id": d.name,
                 "name": d.name.replace("_", " ").title(),
-                "size": sum(f.stat().st_size for f in d.rglob("*") if f.is_file()),
+                "size": size,
+                "size_human": _human_size(size),
+                "file_count": sum(1 for f in d.rglob("*") if f.is_file()),
+                "attribute_count": summary.get("attribute_count"),
+                "geometry_attribute_count": summary.get("geometry_attribute_count"),
+                "geometry_types": [
+                    geom_type
+                    for geom in (summary.get("geometry") or [])
+                    for geom_type in (geom.get("geom_types") or {}).keys()
+                ],
             }
 
             if not query_lc or query_lc in item["id"].lower() or query_lc in item["name"].lower():
                 datasets.append(item)
 
         return datasets
-
-    def _extract_first_json_array(text: str) -> List[Any]:
-        cleaned = re.sub(r"```(?:json)?\s*", "", _normalize_unicode_text(text)).strip().rstrip("`")
-        match = re.search(r"\[.*\]", cleaned, re.DOTALL)
-        if not match:
-            raise ValueError("No JSON array found in LLM response")
-        parsed = json.loads(match.group())
-        if not isinstance(parsed, list):
-            raise ValueError("Expected JSON array from LLM response")
-        return parsed
-
-    def _extract_first_json_object(text: str) -> Dict[str, Any]:
-        cleaned = re.sub(r"```(?:json)?\s*", "", _normalize_unicode_text(text)).strip().rstrip("`")
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start < 0 or end < 0 or end < start:
-            raise ValueError("No JSON object found in LLM response")
-        parsed = json.loads(cleaned[start:end + 1])
-        if not isinstance(parsed, dict):
-            raise ValueError("Expected JSON object from LLM response")
-        return parsed
 
     def _infer_geometry_kind_from_summary(summary: Dict[str, Any]) -> str:
         geometry = summary.get("geometry") or []
@@ -410,12 +480,6 @@ def create_app(
             "name": default_name,
             "colors": sane,
         }
-
-    def _safe_float(value: Any, fallback: float) -> float:
-        try:
-            return float(value)
-        except Exception:
-            return fallback
 
     def _dataset_summary_for_llm(dataset: str) -> Dict[str, Any]:
         stats = _load_stats_for_dataset(dataset)
@@ -621,22 +685,9 @@ def create_app(
             return False
 
         domain_triggers = [
-            "county",
-            "counties",
-            "state",
-            "states",
-            "tract",
-            "tracts",
-            "road",
-            "roads",
-            "rail",
-            "rails",
-            "building",
-            "buildings",
-            "point",
-            "points",
-            "landmark",
-            "landmarks",
+            "county", "counties", "state", "states", "tract", "tracts",
+            "road", "roads", "rail", "rails", "building", "buildings",
+            "point", "points", "landmark", "landmarks",
         ]
         if any(word in q for word in domain_triggers):
             target_attr = ""
@@ -649,14 +700,21 @@ def create_app(
         return False
 
     def _run_initial_chat_turn(user_query: str, k: int = 5) -> Tuple[Dict[str, Any], int]:
+        total_t0 = perf_counter()
         normalized_query = _normalize_unicode_text(user_query)
+
         router = _get_catalog_router()
+
+        search_t0 = perf_counter()
         candidates = router.search(normalized_query, k=k)
+        semantic_search_ms = (perf_counter() - search_t0) * 1000.0
+
         if not candidates:
             raise LookupError("No indexed datasets available")
 
         candidate_payload = _candidate_payload_for_llm(candidates)
 
+        llm_t0 = perf_counter()
         turn1 = start_style_conversation(
             dataset="__choose_from_candidates__",
             dataset_summary={
@@ -673,6 +731,7 @@ def create_app(
             provider_name="gemini",
             temperature=0.2,
         )
+        llm_ms = (perf_counter() - llm_t0) * 1000.0
 
         selected_dataset = _normalize_unicode_text(turn1.selected_dataset).strip()
         candidate_by_name = {c.dataset: c for c in candidates}
@@ -692,6 +751,9 @@ def create_app(
             style=turn1.style,
         )
 
+        tile_metric = _get_tile_metric(selected_dataset)
+        total_ms = (perf_counter() - total_t0) * 1000.0
+
         response = {
             "mode": "initial",
             "query": normalized_query,
@@ -703,6 +765,12 @@ def create_app(
             "style_intent": _normalize_unicode_text(turn1.style_intent),
             "style": normalized_style,
             "top_k": candidate_payload,
+            "timings": {
+                "semantic_search_ms": round(semantic_search_ms, 3),
+                "llm_ms": round(llm_ms, 3),
+                "total_ms": round(total_ms, 3),
+                "last_tile_request_ms": round(float(tile_metric.get("elapsed_ms")), 3) if tile_metric and tile_metric.get("elapsed_ms") is not None else None,
+            },
         }
         return response, 200
 
@@ -719,9 +787,11 @@ def create_app(
         if not interaction_id:
             raise ValueError("interaction_id is required for follow-up turns")
 
+        total_t0 = perf_counter()
         normalized_query = _normalize_unicode_text(user_query)
         selected_summary = _dataset_summary_for_llm(current_dataset)
 
+        llm_t0 = perf_counter()
         turn = continue_style_conversation(
             dataset=current_dataset,
             user_query=normalized_query,
@@ -731,6 +801,7 @@ def create_app(
             provider_name="gemini",
             temperature=0.2,
         )
+        llm_ms = (perf_counter() - llm_t0) * 1000.0
 
         returned_dataset = _normalize_unicode_text(turn.selected_dataset).strip() or current_dataset
         if returned_dataset != current_dataset:
@@ -747,6 +818,9 @@ def create_app(
             style=turn.style,
         )
 
+        tile_metric = _get_tile_metric(current_dataset)
+        total_ms = (perf_counter() - total_t0) * 1000.0
+
         response = {
             "mode": "followup",
             "query": normalized_query,
@@ -757,19 +831,33 @@ def create_app(
             "style_intent": _normalize_unicode_text(turn.style_intent),
             "style": normalized_style,
             "top_k": [],
+            "timings": {
+                "semantic_search_ms": 0.0,
+                "llm_ms": round(llm_ms, 3),
+                "total_ms": round(total_ms, 3),
+                "last_tile_request_ms": round(float(tile_metric.get("elapsed_ms")), 3) if tile_metric and tile_metric.get("elapsed_ms") is not None else None,
+            },
         }
         return response, 200
-
-    # -------------------------------------------------------------------------
-    # Routes: tiles and dataset files
-    # -------------------------------------------------------------------------
 
     @app.get("/<dataset>/<int:z>/<int:x>/<int:y>.mvt")
     def serve_tile(dataset, z, x, y):
         t0 = perf_counter()
         tiler = get_tiler(dataset)
         data = tiler.get_tile(z, x, y)
-        elapsed_ms = (perf_counter() - t0) * 1000
+        elapsed_ms = (perf_counter() - t0) * 1000.0
+
+        metric = {
+            "dataset": dataset,
+            "z": z,
+            "x": x,
+            "y": y,
+            "bytes": len(data),
+            "elapsed_ms": elapsed_ms,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        _set_tile_metric(dataset, metric)
+
         logger.info(
             "[TileRequest] dataset=%s z=%d x=%d y=%d bytes=%d elapsed=%.1fms",
             dataset,
@@ -813,6 +901,15 @@ def create_app(
             mimetype="application/json",
         )
 
+    @app.get("/api/catalog/entries")
+    def api_catalog_entries():
+        query = request.args.get("q", default=None)
+        datasets = _list_dataset_metadata(query=query)
+        return app.response_class(
+            response=json.dumps({"datasets": datasets}, indent=2, ensure_ascii=False),
+            mimetype="application/json",
+        )
+
     @app.get("/datasets.json")
     def search_datasets():
         query = request.args.get("q", default=None)
@@ -845,6 +942,47 @@ def create_app(
                 return json.load(f)
         except Exception as e:
             return {"error": f"Failed to load stats: {e}"}, 500
+
+    @app.get("/api/datasets/<dataset>/inspect")
+    def inspect_dataset(dataset: str):
+        try:
+            metadata = _dataset_metadata(dataset)
+
+            stats = None
+            stats_summary = {}
+            try:
+                stats = _load_stats_for_dataset(dataset)
+                stats_summary = _summarize_stats(stats)
+            except Exception:
+                stats = None
+                stats_summary = {}
+
+            catalog_entry = _load_catalog_entry_map().get(dataset) or {}
+            catalog_summary = catalog_entry.get("summary") or {}
+
+            recent_tile_request = _get_tile_metric(dataset)
+
+            payload = {
+                "dataset": dataset,
+                "metadata": metadata,
+                "catalog_summary": {
+                    "dataset": catalog_summary.get("dataset"),
+                    "description": catalog_summary.get("description"),
+                    "attribute_count": catalog_summary.get("attribute_count"),
+                    "geometry_attribute_count": catalog_summary.get("geometry_attribute_count"),
+                    "geometry": catalog_summary.get("geometry") or [],
+                    "attributes": catalog_summary.get("attributes") or [],
+                },
+                "stats_summary": stats_summary,
+                "recent_tile_request": recent_tile_request,
+                "stats_preview": stats,
+            }
+            return _json_response(payload, 200)
+        except FileNotFoundError as e:
+            return _json_response({"error": str(e)}, 404)
+        except Exception as e:
+            logger.exception("[InspectDataset] Failed for dataset=%s", dataset)
+            return _json_response({"error": f"Failed to inspect dataset: {e}"}, 500)
 
     @app.get("/datasets/<dataset>.html")
     def visualize_dataset(dataset):
@@ -961,10 +1099,6 @@ def create_app(
         except Exception as e:
             return {"error": f"Internal error: {e}"}, 500
 
-    # -------------------------------------------------------------------------
-    # Routes: UI
-    # -------------------------------------------------------------------------
-
     @app.get("/")
     def index():
         logger.info("Serving index page")
@@ -979,7 +1113,6 @@ def create_app(
     def serve_file(filename):
         normalized = filename.strip("/")
 
-        # Prevent this catch-all from touching dataset-file and API paths.
         if normalized.startswith("datasets/") or normalized.startswith("api/"):
             return "File not found", 404
 
@@ -994,10 +1127,6 @@ def create_app(
             return send_from_directory(str(server_dir), normalized)
 
         return "File not found", 404
-
-    # -------------------------------------------------------------------------
-    # Routes: conversational LLM styling
-    # -------------------------------------------------------------------------
 
     @app.post("/api/chat-style")
     def chat_style():
@@ -1179,18 +1308,70 @@ def create_app(
             k = 5
 
         try:
+            total_t0 = perf_counter()
             top_k_payload = []
+            semantic_search_ms = 0.0
 
             if not current_dataset:
+                initial_t0 = perf_counter()
                 initial_response, _ = _run_initial_chat_turn(user_query=user_query, k=k)
+                bootstrap_ms = (perf_counter() - initial_t0) * 1000.0
+
                 current_dataset = _normalize_unicode_text(initial_response.get("selected_dataset", "")).strip()
                 interaction_id = _normalize_unicode_text(initial_response.get("interaction_id", "")).strip()
                 current_style = initial_response.get("style") or {}
                 current_attributes = initial_response.get("selected_attributes") or []
                 top_k_payload = initial_response.get("top_k") or []
+                semantic_search_ms = float((initial_response.get("timings") or {}).get("semantic_search_ms") or 0.0)
 
-            if not current_dataset:
-                return _json_response({"error": "Could not determine a dataset for map-code generation."}, 500)
+                if not current_dataset:
+                    return _json_response({"error": "Could not determine a dataset for map-code generation."}, 500)
+
+                if not _dataset_exists(current_dataset):
+                    return _json_response({"error": f"Dataset not found: {current_dataset}"}, 404)
+
+                dataset_summary = _dataset_summary_for_llm(current_dataset)
+
+                if not current_style:
+                    current_style = _normalize_style_for_client(
+                        dataset=current_dataset,
+                        dataset_summary=dataset_summary,
+                        style={},
+                    )
+
+                llm_t0 = perf_counter()
+                code_turn = generate_map_code(
+                    dataset=current_dataset,
+                    dataset_summary=dataset_summary,
+                    user_query=user_query,
+                    current_style=current_style,
+                    previous_interaction_id=None,
+                    provider_name="gemini",
+                    temperature=0.2,
+                )
+                llm_ms = (perf_counter() - llm_t0) * 1000.0
+                total_ms = (perf_counter() - total_t0) * 1000.0
+                tile_metric = _get_tile_metric(current_dataset)
+
+                response = {
+                    "mode": "generated_code",
+                    "query": user_query,
+                    "interaction_id": _normalize_unicode_text(code_turn.interaction_id or interaction_id),
+                    "assistant_response": _normalize_unicode_text(code_turn.assistant_response),
+                    "selected_dataset": current_dataset,
+                    "selected_attributes": [_normalize_unicode_text(x) for x in (current_attributes or [])],
+                    "style": current_style,
+                    "generated_code": _normalize_unicode_text(code_turn.code),
+                    "top_k": top_k_payload,
+                    "timings": {
+                        "semantic_search_ms": round(semantic_search_ms, 3),
+                        "llm_ms": round(llm_ms, 3),
+                        "total_ms": round(total_ms, 3),
+                        "bootstrap_request_ms": round(bootstrap_ms, 3),
+                        "last_tile_request_ms": round(float(tile_metric.get("elapsed_ms")), 3) if tile_metric and tile_metric.get("elapsed_ms") is not None else None,
+                    },
+                }
+                return _json_response(response, 200)
 
             if not _dataset_exists(current_dataset):
                 return _json_response({"error": f"Dataset not found: {current_dataset}"}, 404)
@@ -1204,6 +1385,7 @@ def create_app(
                     style={},
                 )
 
+            llm_t0 = perf_counter()
             code_turn = generate_map_code(
                 dataset=current_dataset,
                 dataset_summary=dataset_summary,
@@ -1213,6 +1395,9 @@ def create_app(
                 provider_name="gemini",
                 temperature=0.2,
             )
+            llm_ms = (perf_counter() - llm_t0) * 1000.0
+            total_ms = (perf_counter() - total_t0) * 1000.0
+            tile_metric = _get_tile_metric(current_dataset)
 
             response = {
                 "mode": "generated_code",
@@ -1224,6 +1409,12 @@ def create_app(
                 "style": current_style,
                 "generated_code": _normalize_unicode_text(code_turn.code),
                 "top_k": top_k_payload,
+                "timings": {
+                    "semantic_search_ms": round(semantic_search_ms, 3),
+                    "llm_ms": round(llm_ms, 3),
+                    "total_ms": round(total_ms, 3),
+                    "last_tile_request_ms": round(float(tile_metric.get("elapsed_ms")), 3) if tile_metric and tile_metric.get("elapsed_ms") is not None else None,
+                },
             }
             return _json_response(response, 200)
 

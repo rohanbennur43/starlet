@@ -19,6 +19,8 @@
       --danger:#ff6f7d;
       --warning:#f7c66b;
       --shadow:0 12px 36px rgba(0,0,0,0.28);
+      --chip:#11182f;
+      --code:#0b1125;
     }
 
     * { box-sizing: border-box; }
@@ -34,7 +36,7 @@
 
     .app {
       display: grid;
-      grid-template-columns: 430px 1fr;
+      grid-template-columns: 560px 1fr;
       width: 100%;
       height: 100%;
     }
@@ -63,6 +65,13 @@
       font-size: 20px;
       font-weight: 800;
       margin: 0 0 6px 0;
+      letter-spacing: 0.02em;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      margin: 0 0 8px 0;
       letter-spacing: 0.02em;
     }
 
@@ -153,6 +162,11 @@
       color: #2d0710;
     }
 
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
     .status-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -199,6 +213,224 @@
       margin-top: 6px;
     }
 
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      background: var(--chip);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .metric {
+      background: #0e152e;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
+    .metric-value {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .summary-box {
+      background: #0d1329;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .summary-box h3 {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .summary-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .summary-list li + li {
+      margin-top: 4px;
+    }
+
+    .summary-empty {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .attribute-meta-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .attribute-meta-card {
+      background: #0b1125;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .attribute-meta-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .attribute-meta-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .attribute-meta-role {
+      font-size: 11px;
+      color: var(--muted);
+      background: #11182f;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 8px;
+      white-space: nowrap;
+      text-transform: capitalize;
+    }
+
+    .attribute-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .attribute-stat {
+      background: #0e152e;
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 8px;
+    }
+
+    .attribute-stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .attribute-stat-value {
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .attribute-topk {
+      margin-top: 10px;
+    }
+
+    .attribute-topk-title {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
+    .attribute-topk-list {
+      margin: 6px 0 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #0d1329;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      background: rgba(255,255,255,0.02);
+      position: sticky;
+      top: 0;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .table-note {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
     .map-pane {
       position: relative;
       min-width: 0;
@@ -227,26 +459,38 @@
       font-size: 12px;
       backdrop-filter: blur(8px);
     }
-
-    .small {
-      font-size: 12px;
-      color: var(--muted);
-    }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <section class="card">
-        <h1 class="title">Starlet Agentic Map Styling</h1>
+        <h1 class="title">CATALYST</h1>
         <p class="subtitle">
-          Ask for a map style in natural language. First the system can choose a dataset/style,
-          then it can generate full runnable JavaScript for the map runtime inside <code>map.html</code>.
+          Geospatial Data Exploration Styling
         </p>
       </section>
 
       <section class="card">
-        <h2 class="title" style="font-size:16px; margin-bottom:8px;">Upload + Build Dataset</h2>
+        <h2 class="section-title">Dataset Explorer</h2>
+
+        <div class="row">
+          <div>
+            <label for="datasetSelect">Available datasets</label>
+            <select id="datasetSelect">
+              <option value="">Loading datasets...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button id="refreshDatasetsBtn" class="secondary">Refresh Datasets</button>
+          <button id="inspectDatasetBtn" class="secondary">Inspect Selected Dataset</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Upload + Build Dataset</h2>
         <p class="subtitle" style="margin-bottom:12px;">
           Upload a dataset file, generate Starlet tiles/MVTs, then rebuild the catalogue index.
         </p>
@@ -323,8 +567,87 @@
       </section>
 
       <section class="card">
-        <label>Assistant response</label>
+        <h2 class="section-title">Assistant Response</h2>
         <div id="assistantBox" class="assistant-box">No response yet.</div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Selected Dataset Summary</h2>
+
+        <div class="meta-grid">
+          <div class="metric">
+            <div class="metric-label">Dataset</div>
+            <div class="metric-value" id="metaDatasetName">—</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Attributes</div>
+            <div class="metric-value" id="metaAttributeCount">—</div>
+          </div>
+        </div>
+
+        <div class="chips" id="metaChips"></div>
+
+        <div class="summary-grid">
+          <div class="summary-box">
+            <h3>Geometry Types</h3>
+            <ul id="geometryList" class="summary-list"></ul>
+            <div id="geometryEmpty" class="summary-empty" style="display:none;">No geometry summary available.</div>
+          </div>
+
+          <div class="summary-box">
+            <h3>Attribute Metadata</h3>
+            <div id="attributeMetaCards" class="attribute-meta-cards"></div>
+            <div id="attributeMetaEmpty" class="summary-empty" style="display:none;">No attribute metadata available.</div>
+          </div>
+        </div>
+
+        <div class="summary-box" style="margin-top:10px;">
+          <h3>Description / Metadata Notes</h3>
+          <div id="metaDescription" class="summary-empty">No description available.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Top-k Retrieved Candidate Datasets</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Dataset</th>
+                <th>Score</th>
+                <th>Attributes</th>
+              </tr>
+            </thead>
+            <tbody id="topKTableBody">
+              <tr><td colspan="4" class="small">No retrieval results yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-note">
+          These are the candidates returned from semantic search before the LLM chooses one dataset.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Behind-the-Scenes Timings</h2>
+
+        <div class="meta-grid">
+          <div class="metric">
+            <div class="metric-label">Semantic Search Time</div>
+            <div class="metric-value" id="timingSearchMs">—</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">LLM Request Time</div>
+            <div class="metric-value" id="timingLlmMs">—</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Total Request Time</div>
+            <div class="metric-value" id="timingTotalMs">—</div>
+          </div>
+        </div>
       </section>
 
       <section class="card">
@@ -356,6 +679,10 @@
       selectedAttributes: [],
       currentStyle: null,
       lastAssistantResponse: "",
+      topK: [],
+      timings: null,
+      datasetInspection: null,
+      datasetsCatalog: [],
     };
 
     const els = {
@@ -380,12 +707,224 @@
       pgUser: document.getElementById("pgUser"),
       uploadBuildBtn: document.getElementById("uploadBuildBtn"),
       uploadStatusBox: document.getElementById("uploadStatusBox"),
+      datasetSelect: document.getElementById("datasetSelect"),
+      refreshDatasetsBtn: document.getElementById("refreshDatasetsBtn"),
+      inspectDatasetBtn: document.getElementById("inspectDatasetBtn"),
+      topKTableBody: document.getElementById("topKTableBody"),
+      metaDatasetName: document.getElementById("metaDatasetName"),
+      metaAttributeCount: document.getElementById("metaAttributeCount"),
+      metaChips: document.getElementById("metaChips"),
+      geometryList: document.getElementById("geometryList"),
+      geometryEmpty: document.getElementById("geometryEmpty"),
+      attributeMetaCards: document.getElementById("attributeMetaCards"),
+      attributeMetaEmpty: document.getElementById("attributeMetaEmpty"),
+      metaDescription: document.getElementById("metaDescription"),
+      timingSearchMs: document.getElementById("timingSearchMs"),
+      timingLlmMs: document.getElementById("timingLlmMs"),
+      timingTotalMs: document.getElementById("timingTotalMs"),
     };
+
+    function formatMs(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      return `${n.toFixed(1)} ms`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatStat(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      if (typeof value === "number") {
+        if (Math.abs(value) >= 1000) {
+          return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        }
+        if (Math.abs(value) >= 1) {
+          return value.toFixed(2);
+        }
+        return value.toPrecision(3);
+      }
+      return String(value);
+    }
+
+    function roleLabel(role) {
+      const r = String(role || "").trim().toLowerCase();
+      if (!r || r === "unknown") return "attribute";
+      if (r === "categorical_text") return "categorical";
+      return r;
+    }
+
+    function normalizeTopK(topK) {
+      if (!Array.isArray(topK)) return [];
+      return topK.slice(0, 5).map(item => {
+        if (item && typeof item === "object") {
+          const value = item.value ?? "—";
+          const count = item.count;
+          return count === undefined || count === null
+            ? `${value}`
+            : `${value} (${count})`;
+        }
+        return String(item);
+      });
+    }
 
     function updateStatus() {
       els.datasetLabel.textContent = state.dataset || "None";
       els.interactionLabel.textContent = state.interactionId || "None";
       els.assistantBox.textContent = state.lastAssistantResponse || "No response yet.";
+      renderTopK();
+      renderTimings();
+    }
+
+    function renderTopK() {
+      const rows = Array.isArray(state.topK) ? state.topK : [];
+      if (!rows.length) {
+        els.topKTableBody.innerHTML = `<tr><td colspan="4" class="small">No retrieval results yet.</td></tr>`;
+        return;
+      }
+
+      els.topKTableBody.innerHTML = rows.map((row, i) => {
+        const attributes = Array.isArray(row?.summary?.attributes)
+          ? row.summary.attributes.slice(0, 4).map(a => a.name).filter(Boolean).join(", ")
+          : "";
+        const score = Number(row?.score);
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(row?.dataset || "")}</td>
+            <td>${Number.isFinite(score) ? score.toFixed(4) : "—"}</td>
+            <td>${escapeHtml(attributes || "—")}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderTimings() {
+      const t = state.timings || {};
+      els.timingSearchMs.textContent = formatMs(t.semantic_search_ms);
+      els.timingLlmMs.textContent = formatMs(t.llm_ms);
+      els.timingTotalMs.textContent = formatMs(t.total_ms);
+    }
+
+    function renderList(targetEl, emptyEl, items, formatter = (x) => x) {
+      targetEl.innerHTML = "";
+      if (!Array.isArray(items) || !items.length) {
+        emptyEl.style.display = "block";
+        return;
+      }
+      emptyEl.style.display = "none";
+      targetEl.innerHTML = items.map(item => `<li>${escapeHtml(formatter(item))}</li>`).join("");
+    }
+
+    function renderAttributeMetadata(attributes) {
+      els.attributeMetaCards.innerHTML = "";
+
+      if (!Array.isArray(attributes) || !attributes.length) {
+        els.attributeMetaEmpty.style.display = "block";
+        return;
+      }
+
+      els.attributeMetaEmpty.style.display = "none";
+
+      els.attributeMetaCards.innerHTML = attributes.map(attr => {
+        const name = attr?.name || "Unnamed attribute";
+        const role = roleLabel(attr?.role);
+
+        const stats = [];
+
+        if (attr?.min !== undefined) stats.push({ label: "Min", value: formatStat(attr.min) });
+        if (attr?.max !== undefined) stats.push({ label: "Max", value: formatStat(attr.max) });
+        if (attr?.mean !== undefined) stats.push({ label: "Mean", value: formatStat(attr.mean) });
+        if (attr?.stddev !== undefined) stats.push({ label: "Std Dev", value: formatStat(attr.stddev) });
+        if (attr?.non_null_count !== undefined) stats.push({ label: "Non-null", value: formatStat(attr.non_null_count) });
+        if (attr?.approx_distinct !== undefined) stats.push({ label: "Distinct", value: formatStat(attr.approx_distinct) });
+        if (attr?.avg_length !== undefined) stats.push({ label: "Avg Length", value: formatStat(attr.avg_length) });
+        if (attr?.min_length !== undefined) stats.push({ label: "Min Length", value: formatStat(attr.min_length) });
+        if (attr?.max_length !== undefined) stats.push({ label: "Max Length", value: formatStat(attr.max_length) });
+
+        const topK = normalizeTopK(attr?.top_k);
+
+        return `
+          <div class="attribute-meta-card">
+            <div class="attribute-meta-header">
+              <div class="attribute-meta-name">${escapeHtml(name)}</div>
+              <div class="attribute-meta-role">${escapeHtml(role)}</div>
+            </div>
+
+            ${
+              stats.length
+                ? `<div class="attribute-meta-grid">
+                    ${stats.map(stat => `
+                      <div class="attribute-stat">
+                        <div class="attribute-stat-label">${escapeHtml(stat.label)}</div>
+                        <div class="attribute-stat-value">${escapeHtml(stat.value)}</div>
+                      </div>
+                    `).join("")}
+                  </div>`
+                : `<div class="summary-empty">No compact statistics available.</div>`
+            }
+
+            ${
+              topK.length
+                ? `<div class="attribute-topk">
+                    <div class="attribute-topk-title">Top values</div>
+                    <ul class="attribute-topk-list">
+                      ${topK.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+                    </ul>
+                  </div>`
+                : ``
+            }
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderMetadata() {
+      const info = state.datasetInspection || {};
+      const meta = info.metadata || {};
+      const catalog = info.catalog_summary || {};
+      const statsSummary = info.stats_summary || {};
+
+      els.metaDatasetName.textContent = meta.id || state.dataset || "—";
+      els.metaAttributeCount.textContent = statsSummary.attribute_count ?? catalog.attribute_count ?? "—";
+
+      const chips = [];
+      if (catalog.description) chips.push("Catalog description available");
+      if (Array.isArray(statsSummary.geometry_types) && statsSummary.geometry_types.length) {
+        chips.push(`Geometry: ${statsSummary.geometry_types.join(", ")}`);
+      }
+      if (state.selectedAttributes?.length) {
+        state.selectedAttributes.slice(0, 4).forEach(attr => chips.push(`Selected: ${attr}`));
+      }
+
+      els.metaChips.innerHTML = chips.length
+        ? chips.map(text => `<span class="chip">${escapeHtml(text)}</span>`).join("")
+        : `<span class="chip">No extra summary available</span>`;
+
+      renderList(
+        els.geometryList,
+        els.geometryEmpty,
+        statsSummary.geometry_types || [],
+        (item) => item
+      );
+
+      /* IMPORTANT:
+         app.py returns:
+         - stats_summary.sample_attributes -> list of strings
+         - catalog_summary.attributes -> list of rich attribute summary objects
+         So we must use catalog_summary.attributes for metadata cards.
+      */
+      renderAttributeMetadata(catalog.attributes || []);
+
+      els.metaDescription.textContent =
+        catalog.description ||
+        `This dataset has ${statsSummary.attribute_count ?? "unknown"} summarized non-geometry attributes available for inspection and styling.`;
     }
 
     function postToMap(message) {
@@ -426,13 +965,76 @@
       return data;
     }
 
+    async function getJSON(url) {
+      const resp = await fetch(url);
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        throw new Error(`Invalid JSON from ${url}`);
+      }
+      if (!resp.ok) {
+        throw new Error(data?.error || `Request failed (${resp.status})`);
+      }
+      return data;
+    }
+
     function syncFromResponse(data) {
       state.interactionId = data.interaction_id || state.interactionId || "";
       state.dataset = data.selected_dataset || state.dataset || "";
       state.selectedAttributes = Array.isArray(data.selected_attributes) ? data.selected_attributes : [];
       state.currentStyle = data.style || state.currentStyle || null;
       state.lastAssistantResponse = data.assistant_response || "";
+      state.topK = Array.isArray(data.top_k) ? data.top_k : [];
+      state.timings = data.timings || null;
+
+      if (state.dataset) {
+        els.datasetSelect.value = state.dataset;
+      }
+
       updateStatus();
+    }
+
+    async function loadDatasetsCatalog(selectedValue = null) {
+      try {
+        const data = await getJSON("/api/catalog/entries");
+        const datasets = Array.isArray(data.datasets) ? data.datasets : [];
+        state.datasetsCatalog = datasets;
+
+        const options = [`<option value="">Choose a dataset...</option>`].concat(
+          datasets.map(item => {
+            const selected = (selectedValue && item.id === selectedValue) || (!selectedValue && item.id === state.dataset);
+            return `<option value="${escapeHtml(item.id)}" ${selected ? "selected" : ""}>${escapeHtml(item.id)} (${escapeHtml(item.name || item.id)})</option>`;
+          })
+        );
+
+        els.datasetSelect.innerHTML = options.join("");
+
+        if (selectedValue) {
+          els.datasetSelect.value = selectedValue;
+        } else if (state.dataset) {
+          els.datasetSelect.value = state.dataset;
+        }
+      } catch (err) {
+        els.datasetSelect.innerHTML = `<option value="">Failed to load datasets</option>`;
+      }
+    }
+
+    async function inspectDataset(datasetId = null) {
+      const dataset = datasetId || els.datasetSelect.value || state.dataset;
+      if (!dataset) return;
+
+      try {
+        const info = await getJSON(`/api/datasets/${encodeURIComponent(dataset)}/inspect`);
+        state.datasetInspection = info;
+        state.dataset = dataset;
+        els.datasetSelect.value = dataset;
+        renderMetadata();
+        updateStatus();
+      } catch (err) {
+        state.lastAssistantResponse = `Error loading metadata for ${dataset}: ${err.message}`;
+        updateStatus();
+      }
     }
 
     let currentUploadJobId = "";
@@ -452,7 +1054,6 @@
       form.append("file", file);
       form.append("dataset_name", els.uploadDatasetName.value.trim() || file.name);
 
-      // Hardcoded demo defaults
       form.append("num_tiles", "40");
       form.append("zoom", String(els.uploadZoom.value || 7));
       form.append("threshold", String(els.uploadThreshold.value || 0));
@@ -517,8 +1118,12 @@
             state.selectedAttributes = [];
             state.currentStyle = null;
             state.lastAssistantResponse = `Dataset ${dataset} is ready. You can style it now.`;
+            state.topK = [];
+            state.timings = null;
             updateStatus();
             applyStateToMap();
+            await loadDatasetsCatalog(dataset);
+            await inspectDataset(dataset);
           }
           return;
         }
@@ -556,6 +1161,11 @@
 
         syncFromResponse(data);
         applyStateToMap();
+
+        if (state.dataset) {
+          await loadDatasetsCatalog(state.dataset);
+          await inspectDataset(state.dataset);
+        }
       } catch (err) {
         state.lastAssistantResponse = `Error: ${err.message}`;
         updateStatus();
@@ -589,6 +1199,11 @@
         }
 
         applyStateToMap();
+
+        if (state.dataset) {
+          await loadDatasetsCatalog(state.dataset);
+          await inspectDataset(state.dataset);
+        }
       } catch (err) {
         state.lastAssistantResponse = `Error: ${err.message}`;
         updateStatus();
@@ -617,6 +1232,19 @@
     els.resetBtn.addEventListener("click", resetMap);
     els.applyStateBtn.addEventListener("click", applyStateToMap);
 
+    els.refreshDatasetsBtn.addEventListener("click", () => loadDatasetsCatalog());
+    els.inspectDatasetBtn.addEventListener("click", () => inspectDataset());
+    els.datasetSelect.addEventListener("change", async () => {
+      const dataset = els.datasetSelect.value || "";
+      if (!dataset) return;
+      state.dataset = dataset;
+      state.interactionId = "";
+      state.selectedAttributes = [];
+      updateStatus();
+      applyStateToMap();
+      await inspectDataset(dataset);
+    });
+
     els.promptBox.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         suggestStyle();
@@ -641,7 +1269,13 @@
       }
     });
 
-    updateStatus();
+    async function initialize() {
+      updateStatus();
+      renderMetadata();
+      await loadDatasetsCatalog();
+    }
+
+    initialize();
   </script>
 </body>
 </html>
