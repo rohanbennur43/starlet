@@ -32,56 +32,27 @@ def tile(
     max_parallel_files: int = 64,
     index: str | None = None,
 ) -> TileResult:
-    """Partition a GeoParquet/GeoJSON dataset into spatially-tiled Parquet files.
-
-    Parameters
-    ----------
-    input : str
-        Path to a GeoParquet, GeoJSON, or GeoJSON-Lines file.
-    outdir : str
-        Output directory. Tiled files go into ``<outdir>/parquet_tiles/``
-        and histograms into ``<outdir>/histograms/``.
-    num_tiles : int
-        Target number of spatial partitions (used when *index* is ``None``).
-    partition_size : int
-        Target partition size in bytes. Overridden by *num_tiles* when set.
-    sort : str
-        Row sort order within each tile: ``"zorder"``, ``"hilbert"``,
-        ``"columns"``, or ``"none"``.
-    compression : str
-        Parquet compression codec (default ``"zstd"``).
-    sample_cap : int | None
-        Reservoir sampling cap for centroid sampling.
-    sample_ratio : float
-        Bernoulli sampling ratio for centroids (0 < r <= 1).
-    seed : int
-        Random seed for RSGrove partitioner.
-    geom_col : str
-        Name of the geometry column.
-    sfc_bits : int
-        Bits per axis for Z-order / Hilbert key.
-    max_parallel_files : int
-        Maximum concurrent tile files during write.
-    index : str | None
-        Path to a legacy CSV index file. When provided, *num_tiles* is ignored.
-
-    Returns
-    -------
-    TileResult
-    """
+    """Partition a GeoParquet/GeoJSON dataset into spatially-tiled Parquet files."""
     import logging
     import math
     from pathlib import Path
 
-    from starlet._internal.tiling.datasource import GeoParquetSource, GeoJSONSource, is_geojson_path
-    from starlet._internal.tiling.assigner import TileAssignerFromCSV, RSGroveAssigner
+    from starlet._internal.tiling.datasource import (
+        GeoParquetSource,
+        GeoJSONSource,
+        is_geojson_path,
+    )
+    from starlet._internal.tiling.assigner import (
+        TileAssignerFromCSV,
+        RSGroveAssigner,
+    )
     from starlet._internal.tiling.orchestrator import RoundOrchestrator
     from starlet._internal.tiling.writer_pool import SortMode
     from starlet._internal.histogram.hist_pyramid import build_histograms_for_dir
 
     logger = logging.getLogger("starlet.tile")
 
-    # Parse sort mode
+    # -------------------- Sort mode --------------------
     _sort_map = {
         "none": SortMode.NONE,
         "columns": SortMode.COLUMNS,
@@ -90,19 +61,24 @@ def tile(
     }
     sort_mode = _sort_map.get(sort.strip().lower(), SortMode.ZORDER)
 
-    # Build data source
+    # -------------------- Data source --------------------
     if is_geojson_path(input):
         source = GeoJSONSource(input)
     else:
         source = GeoParquetSource(input)
 
-    # Determine partition count
+    # -------------------- Partition count --------------------
     input_size_bytes = Path(input).stat().st_size
     computed = max(1, math.ceil(input_size_bytes / partition_size))
     target_partitions = num_tiles if num_tiles else computed
-    logger.info("Target partitions: %d (input=%d bytes)", target_partitions, input_size_bytes)
 
-    # Build assigner
+    logger.info(
+        "Target partitions: %d (input=%d bytes)",
+        target_partitions,
+        input_size_bytes,
+    )
+
+    # -------------------- Assigner --------------------
     if index:
         assigner = TileAssignerFromCSV(index, geom_col=geom_col)
     else:
@@ -118,6 +94,7 @@ def tile(
     tiles_dir = str(Path(outdir) / "parquet_tiles")
     hist_dir = str(Path(outdir) / "histograms")
 
+    # -------------------- Orchestration --------------------
     orchestrator = RoundOrchestrator(
         source=source,
         assigner=assigner,
@@ -129,6 +106,7 @@ def tile(
     )
     orchestrator.run()
 
+    # -------------------- Histograms --------------------
     logger.info("Tiling complete. Building histograms.")
     build_histograms_for_dir(
         tiles_dir=tiles_dir,
@@ -140,10 +118,10 @@ def tile(
         hist_rg_parallel=4,
     )
 
-    # Gather result metadata
+    # -------------------- Metadata --------------------
     tile_files = list(Path(tiles_dir).glob("*.parquet"))
     total_rows = 0
-    bbox = (float("inf"), float("inf"), float("-inf"), float("-inf"))
+
     for tf in tile_files:
         import pyarrow.parquet as pq
         meta = pq.read_metadata(str(tf))
@@ -168,23 +146,7 @@ def generate_mvt(
     threshold: float = 0,
     outdir: str | None = None,
 ) -> MVTResult:
-    """Generate Mapbox Vector Tiles from a tiled dataset.
-
-    Parameters
-    ----------
-    tile_dir : str
-        Dataset directory containing ``parquet_tiles/`` and ``histograms/``.
-    zoom : int
-        Maximum zoom level.
-    threshold : float
-        Minimum feature count per tile.
-    outdir : str | None
-        MVT output directory. Defaults to ``<tile_dir>/mvt/``.
-
-    Returns
-    -------
-    MVTResult
-    """
+    """Generate Mapbox Vector Tiles from a tiled dataset."""
     from pathlib import Path
     from starlet._internal.mvt.generator import BucketMVTGenerator
 
@@ -201,13 +163,14 @@ def generate_mvt(
     )
     gen.run()
 
-    # Count generated tiles
     mvt_path = Path(mvt_outdir)
+
     tile_count = len(list(mvt_path.rglob("*.mvt")))
-    zoom_levels = sorted(
-        int(d.name) for d in mvt_path.iterdir()
-        if d.is_dir() and d.name.isdigit()
-    ) if mvt_path.exists() else []
+    zoom_levels = (
+        sorted(int(d.name) for d in mvt_path.iterdir() if d.is_dir() and d.name.isdigit())
+        if mvt_path.exists()
+        else []
+    )
 
     return MVTResult(
         outdir=mvt_outdir,
@@ -225,46 +188,44 @@ def build(
     threshold: float = 100_000,
     **tile_kwargs,
 ) -> tuple[TileResult, MVTResult]:
-    """Run the full pipeline: tile then generate MVTs.
+    """Run the full pipeline: tile then generate MVTs."""
+    import logging
+    from time import perf_counter
 
-    Parameters
-    ----------
-    input : str
-        Path to source GeoParquet or GeoJSON file.
-    outdir : str
-        Output dataset directory.
-    zoom : int
-        Maximum zoom level for MVT generation.
-    num_tiles : int
-        Target number of spatial partitions.
-    threshold : float
-        Minimum feature count per MVT tile.
-    **tile_kwargs
-        Additional keyword arguments forwarded to :func:`tile`.
+    logger = logging.getLogger("starlet.build")
 
-    Returns
-    -------
-    tuple[TileResult, MVTResult]
-    """
-    tile_result = tile(input=input, outdir=outdir, num_tiles=num_tiles, **tile_kwargs)
-    mvt_result = generate_mvt(tile_dir=outdir, zoom=zoom, threshold=threshold)
+    build_t0 = perf_counter()
+
+    # -------------------- TILE STAGE --------------------
+    tile_t0 = perf_counter()
+    tile_result = tile(
+        input=input,
+        outdir=outdir,
+        num_tiles=num_tiles,
+        **tile_kwargs,
+    )
+    tile_secs = perf_counter() - tile_t0
+    logger.info("Build stage 'tile' finished in %.2fs", tile_secs)
+
+    # -------------------- MVT STAGE --------------------
+    mvt_t0 = perf_counter()
+    mvt_result = generate_mvt(
+        tile_dir=outdir,
+        zoom=zoom,
+        threshold=threshold,
+    )
+    mvt_secs = perf_counter() - mvt_t0
+    logger.info("Build stage 'mvt' finished in %.2fs", mvt_secs)
+
+    # -------------------- TOTAL --------------------
+    total_secs = perf_counter() - build_t0
+    logger.info("Build finished in %.2fs total", total_secs)
+
     return tile_result, mvt_result
 
 
 def create_app(data_dir: str, cache_size: int = 256):
-    """Create a Flask tile server application.
-
-    Parameters
-    ----------
-    data_dir : str
-        Root directory containing dataset subdirectories.
-    cache_size : int
-        Number of tiles in the in-memory LRU cache.
-
-    Returns
-    -------
-    Flask
-        Configured Flask application.
-    """
+    """Create a Flask tile server application."""
     from starlet._internal.server.app import create_app as _create_app
+
     return _create_app(data_dir=data_dir, cache_size=cache_size)

@@ -1,209 +1,167 @@
-"""Round-based tiling orchestrator.
-
-Coordinates the end-to-end tiling pipeline: reads batches from a
-:class:`DataSource`, assigns rows to spatial partitions via an assigner,
-buffers them in a :class:`WriterPool`, and handles overflow rows that
-cannot be written in the current round by spilling to a temporary
-Parquet file and re-processing in subsequent rounds.
-
-Attribute statistics are collected in a single pass and written once
-after all rounds complete.
-"""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Set, Dict, List
+from time import perf_counter
+from typing import Dict, Optional
 import logging
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from time import perf_counter
 
-from .datasource import DataSource, GeoParquetSource
-from .assigner import TileAssignerFromCSV
-from .writer_pool import WriterPool
-from .utils_large import ensure_large_types
-
-from starlet._internal.stats.collector import AttributeStatsCollector
-from starlet._internal.stats.writer import write_attribute_stats
-
+from starlet._internal.stats import write_attribute_stats, AttributeStatsCollector
+from starlet._internal.tiling.datasource import DataSource, GeoParquetSource
+from starlet._internal.tiling.writer_pool import WriterPool
 
 logger = logging.getLogger(__name__)
 
-_TILE_COL = "geo_parquet_tile_num"
+_TILE_COL = "_tile_id"
 
 
-class _OverflowWriter:
-    """
-    Streams rows that don't fit in this round into a single overflow Parquet file.
-    """
-    def __init__(self, path: Path, compression: str, geom_col: str):
-        self.path = Path(path)
-        self.compression = compression
-        self.geom_col = geom_col
+@dataclass
+class _OverflowState:
+    path: Path
+    writer: Optional[pq.ParquetWriter] = None
+    rows_written: int = 0
 
-        self._pw: Optional[pq.ParquetWriter] = None
-        self._rows = 0
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def write_table(self, table: pa.Table, compression: str) -> None:
+        if table.num_rows == 0:
+            return
+        if self.writer is None:
+            self.writer = pq.ParquetWriter(
+                where=str(self.path),
+                schema=table.schema,
+                compression=compression,
+            )
+        self.writer.write_table(table)
+        self.rows_written += table.num_rows
 
     def close(self) -> int:
-        if self._pw is not None:
-            self._pw.close()
-        return self._rows
-
-    def write_batch(self, tbl: pa.Table, tile_id: Optional[int] = None) -> None:
-        if tbl is None or tbl.num_rows == 0:
-            return
-
-        tbl = tbl.combine_chunks()
-        tbl = ensure_large_types(tbl, geom_col=self.geom_col)
-
-        if tile_id is not None:
-            try:
-                tid_num = int(tile_id)
-            except Exception:
-                tid_num = -1
-            if _TILE_COL not in tbl.column_names:
-                col = pa.array([tid_num] * tbl.num_rows, type=pa.int32())
-                tbl = tbl.append_column(_TILE_COL, col)
-
-        if self._pw is None:
-            self._pw = pq.ParquetWriter(
-                str(self.path),
-                schema=tbl.schema,
-                compression=self.compression
-            )
-
-        self._pw.write_table(tbl)
-        self._rows += tbl.num_rows
+        if self.writer is not None:
+            self.writer.close()
+            self.writer = None
+        return self.rows_written
 
 
 class RoundOrchestrator:
-    """Bounded-memory tiling engine that writes GeoParquet tiles in rounds.
+    """Coordinate round-based tiling with bounded open-tile buffering.
 
-    Each round reads up to *records_per_round* rows, assigns them to spatial
-    partitions, and buffers the results in a :class:`WriterPool`.  Rows that
-    map to tiles already at the ``max_parallel_files`` limit are spilled to an
-    overflow Parquet file and re-processed in the next round.  This keeps the
-    number of open file handles bounded while still handling arbitrarily large
-    input.
-
-    Attribute statistics (min, max, distinct counts, etc.) are collected in a
-    single streaming pass and written to ``<outdir>/../stats/attributes.json``
-    after all rounds complete.
+    Rows whose tile ids fit within the open-tile budget are buffered into the
+    WriterPool. Rows for other tile ids are spilled to an overflow parquet and
+    processed in later rounds.
     """
 
     def __init__(
         self,
+        *,
         source: DataSource,
-        assigner: TileAssignerFromCSV,
+        assigner,
         outdir: str,
-        max_parallel_files: int,
-        compression: str = "zstd",
         geom_col: str = "geometry",
+        records_per_round: int = 250_000,
+        max_open_tiles: int = 64,
+        max_parallel_files: int = 64,
+        compression: str = "zstd",
         sort_mode: str = "zorder",
-        sort_keys: Optional[str] = None,
         sfc_bits: int = 16,
-        records_per_round: int = 1000_000,
-    ):
+        global_extent=None,
+        pq_args: Optional[dict] = None,
+    ) -> None:
         self.source = source
         self.assigner = assigner
         self.outdir = outdir
+        self.geom_col = geom_col
+        self.records_per_round = int(records_per_round)
+        self.max_open_tiles = int(max_open_tiles)
         self.max_parallel_files = int(max_parallel_files)
         self.compression = compression
-        self.geom_col = geom_col
         self.sort_mode = sort_mode
-        self.sort_keys = sort_keys
         self.sfc_bits = int(sfc_bits)
-        self.src_schema: pa.Schema = source.schema()
-        self.records_per_round = int(records_per_round)
-
+        self.global_extent = global_extent
+        self._pq_args = dict(pq_args or {})
         self._stats_collector: Optional[AttributeStatsCollector] = None
 
-    # ------------------------------------------------------------------
+    def _overflow_path_for_round(self, round_id: int) -> Path:
+        return Path(self.outdir) / f"_overflow_round_{round_id}.parquet"
 
-    @staticmethod
-    def _tile_label(tile_id: int) -> str:
-        return f"tile_{tile_id:06d}"
+    def _group_by_tile_column(self, table: pa.Table) -> Dict[int, pa.Table]:
+        """Group rows by an existing integer tile-id column."""
+        tile_values = table[_TILE_COL].to_pylist()
+        buckets: Dict[int, list[int]] = {}
 
-    def _group_by_tile_column(self, batch: pa.Table) -> Dict[int, pa.Table]:
-        col = batch[_TILE_COL]
-        arr = col.to_numpy(zero_copy_only=False)
-        groups: Dict[int, List[int]] = {}
-        for i, v in enumerate(arr):
-            if v is None:
+        for i, tile_id in enumerate(tile_values):
+            if tile_id is None:
                 continue
-            try:
-                v_int = int(v)
-            except Exception:
-                continue
-            groups.setdefault(v_int, []).append(i)
+            buckets.setdefault(int(tile_id), []).append(i)
 
         out: Dict[int, pa.Table] = {}
-        for tid, idxs in groups.items():
-            out[tid] = batch.take(pa.array(idxs, type=pa.int32()))
+        for tid, idxs in buckets.items():
+            out[tid] = table.take(pa.array(idxs, type=pa.int64()))
         return out
 
-    def _group_by_partition_ids(self, batch: pa.Table, partitions: pa.Table) -> Dict[int, pa.Table]:
-        if partitions.num_rows != batch.num_rows:
-            raise ValueError("Partition table must align with batch row count")
-        if "partition_id" not in partitions.column_names:
-            raise ValueError("Partition table missing 'partition_id' column")
+    def _group_by_partition_ids(
+        self,
+        original_table: pa.Table,
+        partition_table,
+    ) -> Dict[int, pa.Table]:
+        """Group rows by partition ids returned by the assigner."""
+        if isinstance(partition_table, pa.Table):
+            if partition_table.num_columns != 1:
+                raise ValueError("partition_table must have exactly one column")
+            pid_values = partition_table.column(0).to_pylist()
+        else:
+            pid_values = partition_table.to_pylist()
 
-        arr = partitions["partition_id"].to_numpy(zero_copy_only=False)
-        groups: Dict[int, List[int]] = {}
-        for i, v in enumerate(arr):
-            if v is None:
+        buckets: Dict[int, list[int]] = {}
+        for i, pid in enumerate(pid_values):
+            if pid is None:
                 continue
-            try:
-                pid = int(v)
-            except Exception:
-                continue
-            groups.setdefault(pid, []).append(i)
+            buckets.setdefault(int(pid), []).append(i)
 
         out: Dict[int, pa.Table] = {}
-        for pid, idxs in groups.items():
-            out[pid] = batch.take(pa.array(idxs, type=pa.int32()))
+        for tid, idxs in buckets.items():
+            sub = original_table.take(pa.array(idxs, type=pa.int64()))
+            if _TILE_COL not in sub.column_names:
+                sub = sub.append_column(
+                    _TILE_COL,
+                    pa.array([tid] * sub.num_rows, type=pa.int64()),
+                )
+            out[tid] = sub
         return out
-
-    # ------------------------------------------------------------------
 
     def _run_one_round(
         self,
         ds: DataSource,
         round_id: int,
-        records_per_round: Optional[int] = None,
+        records_per_round: int,
     ) -> Optional[Path]:
-
         pool = WriterPool(
             outdir=self.outdir,
-            compression=self.compression,
             geom_col=self.geom_col,
-            max_parallel_files=self.max_parallel_files,
             sort_mode=self.sort_mode,
-            sort_keys=self.sort_keys,
             sfc_bits=self.sfc_bits,
-        )
-
-        overflow_path = Path(self.outdir) / f"_overflow_round_{round_id}.parquet"
-        ow = _OverflowWriter(
-            path=overflow_path,
+            global_extent=self.global_extent,
             compression=self.compression,
-            geom_col=self.geom_col,
+            max_parallel_files=self.max_parallel_files,
+            **self._pq_args,
         )
 
-        open_tiles: Set[int] = set()
-        cap = max(1, self.max_parallel_files - 1)
-        batches: List[pa.Table] = []
+        cap = self.max_open_tiles
+        open_tiles: set[int] = set()
+
+        batches = []
         current_rows = 0
         records_limit = max(1, int(records_per_round or self.records_per_round))
 
+        overflow = _OverflowState(path=self._overflow_path_for_round(round_id))
+
         def process_accumulated(batch_id: int) -> None:
             nonlocal batches, current_rows
+
             if not batches:
                 return
 
-            combined = pa.concat_tables(batches, promote=True).combine_chunks()
+            combined = pa.concat_tables(batches, promote_options="default").combine_chunks()
 
             if _TILE_COL in combined.column_names:
                 parts = self._group_by_tile_column(combined)
@@ -216,10 +174,12 @@ class RoundOrchestrator:
                     open_tiles.add(tile_id)
                     pool.append(tile_id, sub)
                 else:
-                    ow.write_batch(sub, tile_id=tile_id)
+                    overflow.write_table(sub, compression=self.compression)
 
             batches = []
             current_rows = 0
+
+        batch_idx = -1
 
         for batch_idx, batch in enumerate(ds.iter_tables()):
             if self._stats_collector is None:
@@ -229,40 +189,48 @@ class RoundOrchestrator:
                 )
 
             self._stats_collector.consume_table(batch)
-
             batches.append(batch)
             current_rows += batch.num_rows
+
             if current_rows >= records_limit:
                 process_accumulated(batch_idx)
 
         process_accumulated(batch_idx)
         pool.flush_all()
 
-        overflow_rows = ow.close()
+        overflow_rows = overflow.close()
         if overflow_rows > 0:
-            return overflow_path
+            return overflow.path
 
-        if overflow_path.exists():
+        if overflow.path.exists():
             try:
-                pf = pq.ParquetFile(str(overflow_path))
+                pf = pq.ParquetFile(str(overflow.path))
                 if pf.metadata.num_rows == 0:
-                    overflow_path.unlink(missing_ok=True)
+                    overflow.path.unlink(missing_ok=True)
             except Exception:
-                pass
-        return None
+                logger.debug(
+                    "Could not inspect overflow parquet for cleanup: %s",
+                    overflow.path,
+                    exc_info=True,
+                )
 
-    # ------------------------------------------------------------------
+        return None
 
     def run(self) -> None:
         round_id = 0
         ds: DataSource = self.source
 
         while True:
+            t0 = perf_counter()
+
             overflow_path = self._run_one_round(
                 ds,
                 round_id,
-                records_per_round=self.records_per_round
+                records_per_round=self.records_per_round,
             )
+
+            logger.info("Round %d finished in %.2fs", round_id, perf_counter() - t0)
+
             if overflow_path is None:
                 break
 
@@ -275,16 +243,16 @@ class RoundOrchestrator:
                 if pf.metadata.num_rows == 0:
                     p.unlink(missing_ok=True)
             except Exception:
-                pass
+                logger.debug("Failed cleaning overflow file %s", p, exc_info=True)
 
-        # ------------------------------------------------------------
-        # Finalize and write attribute statistics (ONCE)
-        # ------------------------------------------------------------
         if self._stats_collector is not None:
             try:
                 stats = self._stats_collector.finalize()
                 dataset_root = Path(self.outdir).parent
                 write_attribute_stats(dataset_root, stats)
-                logger.info("Attribute statistics written to %s/stats/attributes.json", dataset_root)
+                logger.info(
+                    "Attribute statistics written to %s/stats/attributes.json",
+                    dataset_root,
+                )
             except Exception:
                 logger.exception("Failed to finalize/write attribute statistics")
