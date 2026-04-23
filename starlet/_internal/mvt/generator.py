@@ -34,24 +34,22 @@ class BucketMVTGenerator:
         logger.info("Starting MVT generation pipeline")
         prefix = HistogramLoader(self.hist_path).load()
         zooms = list(range(0, self.last_zoom + 1))
-        logger.debug(f"Zooms to process: {zooms}")
+        logger.debug("Zooms to process: %s", zooms)
 
         assigner = TileAssigner(zooms, prefix, self.threshold)
-        logger.info("Computing nonempty tiles")
-        assigner.compute_nonempty()
-        total_nonempty = sum(len(v) for v in assigner.nonempty.values())
-        logger.info(f"Found {total_nonempty} nonempty tiles across all zoom levels")
+        logger.info("Using lazy histogram checks during assignment; no global nonempty-tile prepass")
 
-        logger.info(f"Streaming geometries from {self.parquet_dir}")
+        logger.info("Streaming geometries from %s", self.parquet_dir)
         geom_count = 0
         streamer = GeometryStreamer(self.parquet_dir)
         for geom, attrs in streamer.iter_geometries():
             assigner.assign_geometry(geom, attrs)
             geom_count += 1
             if geom_count % 10000 == 0:
-                logger.debug(f"Processed {geom_count} geometries")
-        logger.info(f"Assigned {geom_count} geometries to tiles")
+                logger.debug("Processed %d geometries", geom_count)
 
-        logger.info(f"Rendering tiles to {self.outdir}")
+        logger.info("Assigned %d geometries to tiles", geom_count)
+
+        logger.info("Rendering tiles to %s", self.outdir)
         TileRenderer(self.outdir).render(assigner.buckets)
         logger.info("Pipeline execution complete")
