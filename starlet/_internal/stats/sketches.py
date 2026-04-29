@@ -147,9 +147,21 @@ class TextSketch(CategoricalSketch):
 
 
 class GeometrySketch:
-    def __init__(self):
-        self.minx = self.miny = None
-        self.maxx = self.maxy = None
+    def __init__(self, global_mbr=None):
+        """
+        Initialize GeometrySketch with optional pre-computed global MBR.
+
+        Args:
+            global_mbr: Optional tuple of (minx, miny, maxx, maxy) to skip redundant MBR computation
+        """
+        if global_mbr is not None:
+            self.minx, self.miny, self.maxx, self.maxy = global_mbr
+            self._skip_mbr_computation = True
+        else:
+            self.minx = self.miny = None
+            self.maxx = self.maxy = None
+            self._skip_mbr_computation = False
+
         self.geom_types = Counter()
         self.total_points = 0
 
@@ -169,14 +181,16 @@ class GeometrySketch:
 
             self.geom_types[geom.geom_type] += 1
 
-            minx, miny, maxx, maxy = geom.bounds
-            if self.minx is None:
-                self.minx, self.miny, self.maxx, self.maxy = minx, miny, maxx, maxy
-            else:
-                self.minx = min(self.minx, minx)
-                self.miny = min(self.miny, miny)
-                self.maxx = max(self.maxx, maxx)
-                self.maxy = max(self.maxy, maxy)
+            # Only compute MBR if not pre-provided
+            if not self._skip_mbr_computation:
+                minx, miny, maxx, maxy = geom.bounds
+                if self.minx is None:
+                    self.minx, self.miny, self.maxx, self.maxy = minx, miny, maxx, maxy
+                else:
+                    self.minx = min(self.minx, minx)
+                    self.miny = min(self.miny, miny)
+                    self.maxx = max(self.maxx, maxx)
+                    self.maxy = max(self.maxy, maxy)
 
             self.total_points += self._count_coords(geom)
 

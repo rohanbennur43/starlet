@@ -120,6 +120,16 @@ class RoundOrchestrator:
 
         self._stats_collector: Optional[AttributeStatsCollector] = None
 
+        # Extract global MBR from RSGroveAssigner if available (to avoid redundant computation)
+        self._global_mbr = None
+        if hasattr(assigner, '_env'):
+            env = assigner._env
+            self._global_mbr = (
+                float(env.mins[0]), float(env.mins[1]),
+                float(env.maxs[0]), float(env.maxs[1])
+            )
+            logger.debug(f"Extracted global MBR from assigner: {self._global_mbr}")
+
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -226,6 +236,7 @@ class RoundOrchestrator:
                 self._stats_collector = AttributeStatsCollector(
                     batch.schema,
                     geometry_column=self.geom_col,
+                    global_mbr=self._global_mbr,  # Pass pre-computed MBR to skip redundant computation
                 )
 
             self._stats_collector.consume_table(batch)

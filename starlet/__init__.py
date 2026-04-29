@@ -167,6 +167,8 @@ def generate_mvt(
     zoom: int = 7,
     threshold: float = 0,
     outdir: str | None = None,
+    auto_zoom: bool = True,
+    occupancy_threshold: float = 0.01,
 ) -> MVTResult:
     """Generate Mapbox Vector Tiles from a tiled dataset.
 
@@ -180,6 +182,13 @@ def generate_mvt(
         Minimum feature count per tile.
     outdir : str | None
         MVT output directory. Defaults to ``<tile_dir>/mvt/``.
+    auto_zoom : bool
+        Automatically detect maximum useful zoom level from histogram density.
+        If True and data becomes sparse before ``zoom``, generation stops early.
+        Default True.
+    occupancy_threshold : float
+        Minimum tile occupancy (nonempty_tiles / total_tiles) for auto-zoom detection.
+        Default 0.01 (1% occupancy).
 
     Returns
     -------
@@ -198,6 +207,8 @@ def generate_mvt(
         outdir=mvt_outdir,
         last_zoom=zoom,
         threshold=threshold,
+        auto_zoom=auto_zoom,
+        occupancy_threshold=occupancy_threshold,
     )
     gen.run()
 
