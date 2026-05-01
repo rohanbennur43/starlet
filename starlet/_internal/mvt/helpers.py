@@ -19,22 +19,21 @@ WORLD_H = WORLD_MAXY - WORLD_MINY
 EXTENT = 4096
 
 
-def hist_value_from_prefix(prefix: np.ndarray, z: int, x: int, y: int) -> float:
-    """Query the geometry count for tile (z, x, y) using the 2D prefix-sum array.
+def hist_zoom_from_prefix(prefix: np.ndarray) -> int:
+    _, w = prefix.shape
+    return int(round(math.log2(w)))
 
-    The prefix-sum (a.k.a. summed-area table) allows O(1) range queries.  Three
-    cases are handled depending on the relationship between *z* and the native
-    histogram zoom level:
 
-    * **z == hist_zoom** — direct single-cell lookup via inclusion-exclusion:
-      ``val = P[y,x] - P[y-1,x] - P[y,x-1] + P[y-1,x-1]``
-    * **z < hist_zoom** — the tile spans multiple histogram cells; a rectangular
-      sub-region is summed in O(1) with the same inclusion-exclusion formula.
-    * **z > hist_zoom** — the tile is smaller than a histogram cell; the parent
-      cell value is divided evenly among sub-tiles.
-    """
+def hist_value_from_prefix(
+    prefix: np.ndarray,
+    z: int,
+    x: int,
+    y: int,
+    hist_zoom: int | None = None,
+) -> float:
     H, W = prefix.shape
-    hist_zoom = int(round(math.log2(W)))
+    if hist_zoom is None:
+        hist_zoom = hist_zoom_from_prefix(prefix)
 
     if z == hist_zoom:
         if 0 <= y < H and 0 <= x < W:
