@@ -216,7 +216,7 @@ def _sum_all_tiles(tile_hists: List[np.ndarray], outdir: Path, dtype="float64") 
     logger.info(f"Wrote global histogram: {global_path}")
     logger.info(f"Wrote global prefix sum histogram: {prefix_path}")
 
-    return global_path
+    return prefix_path
 
 
 # ---------------------------------------------------------------------------
