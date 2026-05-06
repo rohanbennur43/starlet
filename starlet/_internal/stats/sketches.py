@@ -25,6 +25,9 @@ class SpaceSavingTopK:
 
     def result(self):
         total_count = sum(self.counter.values())
+        if total_count == 0:
+            return []
+
         top_k = self.counter.most_common(self.k)
         top_k_count = sum(count for _, count in top_k)
 
