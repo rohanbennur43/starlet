@@ -1,6 +1,6 @@
 [project]
 name = "starlet"
-version = "0.2.2"
+version = "0.2.3"
 description = "Spatial tiling, MVT generation, and tile serving for geospatial data"
 readme = "README.md"
 requires-python = ">=3.10"
