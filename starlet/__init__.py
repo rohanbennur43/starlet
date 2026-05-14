@@ -1,7 +1,8 @@
 """starlet — spatial tiling, MVT generation, and tile serving for geospatial data."""
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+__version__ = version("starlet")
 
 from starlet._types import TileResult, MVTResult, Dataset
 

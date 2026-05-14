@@ -6,8 +6,38 @@ on:
       - "v*.*.*"
 
 jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-cov pytest-mock
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --cov=starlet --cov-report=term
+
+      - name: Verify all tests passed
+        run: |
+          echo "All tests passed for Python ${{ matrix.python-version }}"
+
   build:
     name: Build distribution
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
@@ -29,6 +59,115 @@ jobs:
         with:
           name: python-package-distributions
           path: dist/
+
+  benchmark:
+    name: Run Performance Benchmarks
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install starlet
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Download benchmark dataset
+        run: |
+          mkdir -p benchmark_data
+          curl -L -o benchmark_data/asia_postal_codes.parquet \
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.parquet
+          ls -lh benchmark_data/
+
+      - name: Run Parquet Benchmark
+        id: bench_parquet
+        run: |
+          echo "::group::Parquet Benchmark"
+          python .github/scripts/run_benchmark.py parquet
+          echo "::endgroup::"
+
+      - name: Create Summary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > summary.py << 'SCRIPT'
+          import json
+          import os
+          from pathlib import Path
+          from datetime import datetime
+
+          result = json.loads(Path('benchmark_parquet.json').read_text())
+          release_tag = os.environ.get('RELEASE_TAG', result['version'])
+
+          combined = {
+              'version': result['version'],
+              'date': datetime.now().isoformat(),
+              'benchmarks': [result]
+          }
+
+          filename = f"benchmark-{release_tag}.json"
+          Path(filename).write_text(json.dumps(combined, indent=2))
+
+          md = f"""# Performance Benchmark - {release_tag}
+
+          **Dataset:** asia_postal_codes (184K features, 1GB)
+          **Date:** {combined['date'].split('T')[0]}
+
+          ## Results
+
+          | Metric | Value |
+          |--------|-------|
+          | Total Time | {result['results']['total_time_s']}s |
+          | Parquet Tiles | {result['results']['parquet_tiles']} |
+          | Total Rows | {result['results']['total_rows']:,} |
+          | MVT Tiles | {result['results']['mvt_tiles']} |
+          | Zoom Levels | {result['results']['zoom_levels']} |
+
+          ## Configuration
+          - num_tiles: 10
+          - zoom: 5
+          - threshold: 50,000
+          """
+
+          Path('benchmark_summary.md').write_text(md)
+          print(md)
+          SCRIPT
+          python summary.py
+
+      - name: Create release with benchmark results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if release exists
+          if ! gh release view ${{ github.ref_name }} > /dev/null 2>&1; then
+            # Read the benchmark summary
+            NOTES=$(cat benchmark_summary.md)
+
+            if [[ "${{ github.ref_name }}" == *"-test"* ]]; then
+              gh release create ${{ github.ref_name }} \
+                --title "Test Release ${{ github.ref_name }}" \
+                --notes "$NOTES" \
+                --prerelease
+            else
+              gh release create ${{ github.ref_name }} \
+                --title "Release ${{ github.ref_name }}" \
+                --notes "$NOTES" \
+                --latest
+            fi
+          else
+            # Update existing release with benchmark notes
+            NOTES=$(cat benchmark_summary.md)
+            gh release edit ${{ github.ref_name }} --notes "$NOTES"
+          fi
 
   publish:
     name: Publish to PyPI

@@ -2,8 +2,12 @@ from typing import Iterable, Optional, List, Dict, Any, Tuple
 import logging
 import json
 from pathlib import Path
+from decimal import Decimal
+
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +61,7 @@ def _attach_geoparquet_metadata(schema: pa.Schema, crs_hint: Optional[str]) -> p
     geo = {
         "version": "1.1.0",
         "primary_column": "geometry",
-        "columns": {"geometry": {"encoding": "WKB"}}
+        "columns": {"geometry": {"encoding": "WKB"}},
     }
     if crs_hint:
         try:
@@ -67,6 +71,35 @@ def _attach_geoparquet_metadata(schema: pa.Schema, crs_hint: Optional[str]) -> p
 
     md[b"geo"] = json.dumps(geo, separators=(",", ":")).encode("utf-8")
     return pa.schema(schema, metadata=md)
+
+
+def _normalize_decimal_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert object columns containing Decimal values into float64 so Arrow does
+    not infer different decimal128 precision/scale across batches.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    for col in df.columns:
+        s = df[col]
+
+        # Only object dtype can hold Decimal values in pandas here.
+        if s.dtype != "object":
+            continue
+
+        sample = None
+        for v in s:
+            if v is not None:
+                sample = v
+                break
+
+        if isinstance(sample, Decimal):
+            df[col] = s.map(lambda x: float(x) if x is not None else None)
+
+    return df
 
 
 # ------------------------- GeoJSON source (streaming → Arrow) ------------------------- #
@@ -135,26 +168,35 @@ class GeoJSONSource(DataSource):
     def iter_tables(self) -> Iterable[pa.Table]:
         batch_index = 0
         crs_value = self._crs_hint or self.target_crs or self.src_crs
+
         import geopandas as gpd
 
         for features in _iter_geojson_feature_batches(self.path, self.batch_rows, self._use_geojsonl):
             if not features:
                 continue
+
             gdf = gpd.GeoDataFrame.from_features(features, crs=crs_value)
             geometry_col = pa.array(gdf.geometry.to_wkb(), type=pa.binary())
+
             props_df = gdf.drop(columns="geometry")
+            props_df = _normalize_decimal_columns(props_df)
             props_table = pa.Table.from_pandas(props_df, preserve_index=False)
+
             table = (
                 pa.table([geometry_col], names=["geometry"])
                 if props_table.num_columns == 0
                 else props_table.append_column("geometry", geometry_col)
             )
+
             # Attach GeoParquet metadata with CRS
             schema_with_geo = _attach_geoparquet_metadata(table.schema, crs_value)
             table = table.replace_schema_metadata(schema_with_geo.metadata)
+
             if not self._schema:
                 self._schema = schema_with_geo
+
             table = self._coerce_to_schema(table, self.schema()).combine_chunks()
+
             logger.info(
                 "GeoJSON batch %d (%d rows) -> %d columns (including 'geometry')",
                 batch_index,
@@ -167,14 +209,17 @@ class GeoJSONSource(DataSource):
     # ---------------- internal helpers ---------------- #
     def _read_first_batch(self) -> Optional[pa.Table]:
         """Read the first batch of features to establish the schema."""
-        feature_iter = _iter_geojson_feature_batches(self.path, max(1, self.batch_rows), self._use_geojsonl)
+        feature_iter = _iter_geojson_feature_batches(
+            self.path,
+            max(1, self.batch_rows),
+            self._use_geojsonl
+        )
         try:
             features = next(feature_iter)
         except StopIteration:
             logger.info("GeoJSON read returned 0 rows when inferring schema")
             return None
 
-        # Separate geometries and properties to prepare for Arrow conversion
         rows_props: List[Dict[str, Any]] = []
         geometries: List[Any] = []
 
@@ -182,8 +227,10 @@ class GeoJSONSource(DataSource):
             rows_props.append(feat.get("properties") or {})
             geometries.append(feat.get("geometry", None))
 
-        # Convert to Arrow Table
-        props_table = pa.Table.from_pylist(rows_props)
+        props_df = pd.DataFrame.from_records(rows_props)
+        props_df = _normalize_decimal_columns(props_df)
+        props_table = pa.Table.from_pandas(props_df, preserve_index=False)
+
         wkb_list = _geometries_to_wkb(geometries)
         geometry_col = pa.array(wkb_list, type=pa.binary())
 
@@ -192,10 +239,10 @@ class GeoJSONSource(DataSource):
 
         return props_table.append_column("geometry", geometry_col)
 
-
     def _coerce_to_schema(self, t: pa.Table, schema: pa.Schema) -> pa.Table:
-        if (t.schema.equals(schema)):
+        if t.schema.equals(schema):
             return t
+
         out_cols = []
         for fld in schema:
             name = fld.name
@@ -212,6 +259,7 @@ class GeoJSONSource(DataSource):
                 out_cols.append(col)
             else:
                 out_cols.append(pa.nulls(t.num_rows, type=fld.type))
+
         return pa.table(out_cols, names=[f.name for f in schema])
 
 
