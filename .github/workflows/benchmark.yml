@@ -33,9 +33,9 @@ jobs:
           mkdir -p benchmark_data
           # Download asia_postal_codes datasets from GitHub Release
           curl -L -o benchmark_data/asia_postal_codes.parquet \
-            https://github.com/rohanbennur43/ucr-bigdatalab-starmap/releases/download/datasets-v1.0/asia_postal_codes.parquet
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.parquet
           curl -L -o benchmark_data/asia_postal_codes.geojson \
-            https://github.com/rohanbennur43/ucr-bigdatalab-starmap/releases/download/datasets-v1.0/asia_postal_codes.geojson
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.geojson
           ls -lh benchmark_data/
 
       - name: Run Parquet Benchmark
