@@ -82,10 +82,8 @@ jobs:
       - name: Download benchmark dataset
         run: |
           mkdir -p benchmark_data
-          curl -L -o benchmark_data/asia_postal_codes.parquet \
-            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.parquet
-          curl -L -o benchmark_data/asia_postal_codes.geojson \
-            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.geojson
+          curl -L -o benchmark_data/TIGER2018_RAILS.parquet \
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/TIGER2018_RAILS.parquet
           ls -lh benchmark_data/
 
       - name: Run Parquet Benchmark
@@ -95,54 +93,49 @@ jobs:
           python .github/scripts/run_benchmark.py parquet
           echo "::endgroup::"
 
-      - name: Run GeoJSON Benchmark
-        id: bench_geojson
+      - name: Create Summary
         run: |
-          echo "::group::GeoJSON Benchmark"
-          python .github/scripts/run_benchmark.py geojson
-          echo "::endgroup::"
-
-      - name: Combine Results
-        run: |
-          cat > combine.py << 'SCRIPT'
+          cat > summary.py << 'SCRIPT'
           import json
           from pathlib import Path
           from datetime import datetime
 
-          parquet = json.loads(Path('benchmark_parquet.json').read_text())
-          geojson = json.loads(Path('benchmark_geojson.json').read_text())
+          result = json.loads(Path('benchmark_parquet.json').read_text())
 
           combined = {
-              'version': parquet['version'],
+              'version': result['version'],
               'date': datetime.now().isoformat(),
-              'benchmarks': [parquet, geojson]
+              'benchmarks': [result]
           }
 
-          filename = f"benchmark-{parquet['version']}.json"
+          filename = f"benchmark-{result['version']}.json"
           Path(filename).write_text(json.dumps(combined, indent=2))
 
-          md = f"""# Performance Benchmark - v{parquet['version']}
+          md = f"""# Performance Benchmark - v{result['version']}
 
-          **Dataset:** asia_postal_codes (184,746 features)
+          **Dataset:** TIGER2018_RAILS (145K features, 49MB)
           **Date:** {combined['date'].split('T')[0]}
 
           ## Results
 
-          | Format | Time | Tiles | Rows |
-          |--------|------|-------|------|
-          | Parquet | {parquet['results']['total_time_s']}s | {parquet['results']['parquet_tiles']} | {parquet['results']['total_rows']:,} |
-          | GeoJSON | {geojson['results']['total_time_s']}s | {geojson['results']['parquet_tiles']} | {geojson['results']['total_rows']:,} |
+          | Metric | Value |
+          |--------|-------|
+          | Total Time | {result['results']['total_time_s']}s |
+          | Parquet Tiles | {result['results']['parquet_tiles']} |
+          | Total Rows | {result['results']['total_rows']:,} |
+          | MVT Tiles | {result['results']['mvt_tiles']} |
+          | Zoom Levels | {result['results']['zoom_levels']} |
 
           ## Configuration
           - num_tiles: 10
           - zoom: 5
-          - threshold: 500,000
+          - threshold: 50,000
           """
 
           Path('benchmark_summary.md').write_text(md)
           print(md)
           SCRIPT
-          python combine.py
+          python summary.py
 
       - name: Upload benchmark results to release
         env:

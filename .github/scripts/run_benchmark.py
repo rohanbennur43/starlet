@@ -33,7 +33,7 @@ def run_benchmark(input_path, format_name, output_dir):
         outdir=output_dir,
         num_tiles=10,
         zoom=5,
-        threshold=500000
+        threshold=50000
     )
 
     elapsed = time.time() - start
@@ -43,13 +43,13 @@ def run_benchmark(input_path, format_name, output_dir):
     stats = {
         'version': version,
         'format': format_name,
-        'dataset': 'asia_postal_codes',
-        'input_size_mb': 1024 if format_name == 'parquet' else 1536,
-        'features': 184746,
+        'dataset': 'TIGER2018_RAILS',
+        'input_size_mb': 49,
+        'features': 145356,
         'config': {
             'num_tiles': 10,
             'zoom': 5,
-            'threshold': 500000
+            'threshold': 50000
         },
         'results': {
             'total_time_s': round(elapsed, 2),
@@ -71,18 +71,14 @@ def run_benchmark(input_path, format_name, output_dir):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ['parquet', 'geojson']:
-        print("Usage: run_benchmark.py {parquet|geojson}")
+    if len(sys.argv) != 2 or sys.argv[1] not in ['parquet']:
+        print("Usage: run_benchmark.py parquet")
         sys.exit(1)
 
     format_name = sys.argv[1]
 
-    if format_name == 'parquet':
-        input_path = 'benchmark_data/asia_postal_codes.parquet'
-        output_dir = 'benchmark_output_parquet'
-    else:
-        input_path = 'benchmark_data/asia_postal_codes.geojson'
-        output_dir = 'benchmark_output_geojson'
+    input_path = 'benchmark_data/TIGER2018_RAILS.parquet'
+    output_dir = 'benchmark_output_parquet'
 
     stats = run_benchmark(input_path, format_name, output_dir)
 
