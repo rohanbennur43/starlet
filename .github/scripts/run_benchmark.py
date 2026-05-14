@@ -33,7 +33,8 @@ def run_benchmark(input_path, format_name, output_dir):
         outdir=output_dir,
         num_tiles=10,
         zoom=5,
-        threshold=50000
+        threshold=50000,
+        max_parallel_files=4  # Cap for 2-core CI runner
     )
 
     elapsed = time.time() - start
