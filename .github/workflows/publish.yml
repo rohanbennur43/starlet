@@ -180,7 +180,7 @@ jobs:
 
       - name: Combine Results
         run: |
-          python -c "
+          cat > combine.py << 'SCRIPT'
           import json
           from pathlib import Path
           from datetime import datetime
@@ -194,30 +194,31 @@ jobs:
               'benchmarks': [parquet, geojson]
           }
 
-          filename = f\"benchmark-{parquet['version']}.json\"
+          filename = f"benchmark-{parquet['version']}.json"
           Path(filename).write_text(json.dumps(combined, indent=2))
 
-          md = f'''# Performance Benchmark - v{parquet['version']}
+          md = f"""# Performance Benchmark - v{parquet['version']}
 
-**Dataset:** asia_postal_codes (184,746 features)
-**Date:** {combined['date'].split('T')[0]}
+          **Dataset:** asia_postal_codes (184,746 features)
+          **Date:** {combined['date'].split('T')[0]}
 
-## Results
+          ## Results
 
-| Format | Time | Tiles | Rows |
-|--------|------|-------|------|
-| Parquet | {parquet['results']['total_time_s']}s | {parquet['results']['parquet_tiles']} | {parquet['results']['total_rows']:,} |
-| GeoJSON | {geojson['results']['total_time_s']}s | {geojson['results']['parquet_tiles']} | {geojson['results']['total_rows']:,} |
+          | Format | Time | Tiles | Rows |
+          |--------|------|-------|------|
+          | Parquet | {parquet['results']['total_time_s']}s | {parquet['results']['parquet_tiles']} | {parquet['results']['total_rows']:,} |
+          | GeoJSON | {geojson['results']['total_time_s']}s | {geojson['results']['parquet_tiles']} | {geojson['results']['total_rows']:,} |
 
-## Configuration
-- num_tiles: 40
-- zoom: 10
-- threshold: 500,000
-'''
+          ## Configuration
+          - num_tiles: 40
+          - zoom: 10
+          - threshold: 500,000
+          """
 
           Path('benchmark_summary.md').write_text(md)
           print(md)
-          "
+          SCRIPT
+          python combine.py
 
       - name: Upload benchmark results to release
         env:
