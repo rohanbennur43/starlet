@@ -91,88 +91,16 @@ jobs:
       - name: Run Parquet Benchmark
         id: bench_parquet
         run: |
-          python -c "
-          import starlet
-          import time
-          import json
-          from pathlib import Path
-
-          start = time.time()
-          result = starlet.build(
-              input='benchmark_data/asia_postal_codes.parquet',
-              outdir='benchmark_output_parquet',
-              num_tiles=40,
-              zoom=10,
-              threshold=500000
-          )
-          elapsed = time.time() - start
-
-          version = starlet.__version__
-
-          stats = {
-              'version': version,
-              'format': 'parquet',
-              'dataset': 'asia_postal_codes',
-              'input_size_mb': 1024,
-              'features': 184746,
-              'config': {
-                  'num_tiles': 40,
-                  'zoom': 10,
-                  'threshold': 500000
-              },
-              'results': {
-                  'total_time_s': round(elapsed, 2),
-                  'parquet_tiles': result[0].num_files,
-                  'total_rows': result[0].total_rows
-              }
-          }
-
-          Path('benchmark_parquet.json').write_text(json.dumps(stats, indent=2))
-          print(f'Parquet benchmark: {elapsed:.2f}s')
-          "
+          echo "::group::Parquet Benchmark"
+          python .github/scripts/run_benchmark.py parquet
+          echo "::endgroup::"
 
       - name: Run GeoJSON Benchmark
         id: bench_geojson
         run: |
-          python -c "
-          import starlet
-          import time
-          import json
-          from pathlib import Path
-
-          start = time.time()
-          result = starlet.build(
-              input='benchmark_data/asia_postal_codes.geojson',
-              outdir='benchmark_output_geojson',
-              num_tiles=40,
-              zoom=10,
-              threshold=500000
-          )
-          elapsed = time.time() - start
-
-          version = starlet.__version__
-
-          stats = {
-              'version': version,
-              'format': 'geojson',
-              'dataset': 'asia_postal_codes',
-              'input_size_mb': 1536,
-              'features': 184746,
-              'config': {
-                  'num_tiles': 40,
-                  'zoom': 10,
-                  'threshold': 500000
-              },
-              'results': {
-                  'total_time_s': round(elapsed, 2),
-                  'parquet_tiles': result[0].num_files,
-                  'total_rows': result[0].total_rows
-              }
-          }
-
-          Path('benchmark_geojson.json').write_text(json.dumps(stats, indent=2))
-          print(f'GeoJSON benchmark: {elapsed:.2f}s')
-          "
+          echo "::group::GeoJSON Benchmark"
+          python .github/scripts/run_benchmark.py geojson
+          echo "::endgroup::"
 
       - name: Combine Results
         run: |
