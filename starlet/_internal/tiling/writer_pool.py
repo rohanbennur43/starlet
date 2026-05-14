@@ -223,7 +223,17 @@ def _finalize_one_tile(
     )
     combined = _with_updated_geo_metadata(combined, bbox)
 
-    out_path = os.path.join(config.outdir, f"{tile_id}.parquet")
+    # Encode bbox in filename for ParquetIndex spatial lookups
+    minx, miny, maxx, maxy = bbox
+
+    def encode_coord(val):
+        int_part = int(val)
+        dec_part = abs(int((val - int_part) * 1000000))
+        return f"{int_part}_{dec_part}"
+
+    bbox_str = "_".join([encode_coord(c) for c in bbox])
+    filename = f"tile_{tile_id:06d}__{bbox_str}.parquet"
+    out_path = os.path.join(config.outdir, filename)
     write_args = dict(config.pq_args)
     if config.compression is not None:
         write_args.setdefault("compression", config.compression)
