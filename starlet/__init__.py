@@ -11,6 +11,7 @@ __all__ = [
     "generate_mvt",
     "build",
     "create_app",
+    "export_pmtiles",
     "TileResult",
     "MVTResult",
     "Dataset",
@@ -261,6 +262,45 @@ def build(
     tile_result = tile(input=input, outdir=outdir, num_tiles=num_tiles, **tile_kwargs)
     mvt_result = generate_mvt(tile_dir=outdir, zoom=zoom, threshold=threshold)
     return tile_result, mvt_result
+
+
+def export_pmtiles(
+    mvt_dir: str,
+    output_path: str,
+    tile_type: str = "mvt",
+    compression: str = "gzip",
+) -> str:
+    """Export MVT tiles to PMTiles archive format.
+
+    Parameters
+    ----------
+    mvt_dir : str
+        Directory containing MVT tiles in z/x/y.mvt structure.
+        Typically ``<dataset>/mvt/``.
+    output_path : str
+        Path to output .pmtiles file.
+    tile_type : str
+        Tile type: "mvt" (vector), "png", "jpg", "webp" (raster).
+        Default "mvt".
+    compression : str
+        Compression: "gzip", "none", "brotli", "zstd".
+        Default "gzip".
+
+    Returns
+    -------
+    str
+        Path to created PMTiles file.
+
+    Examples
+    --------
+    >>> # After running build/generate_mvt
+    >>> export_pmtiles(
+    ...     mvt_dir="datasets/mydata/mvt",
+    ...     output_path="datasets/mydata.pmtiles"
+    ... )
+    """
+    from starlet._internal.pmtiles.exporter import export_to_pmtiles
+    return export_to_pmtiles(mvt_dir, output_path, tile_type, compression)
 
 
 def create_app(data_dir: str, cache_size: int = 256):
