@@ -64,7 +64,7 @@ jobs:
     name: Run Performance Benchmarks
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -134,8 +134,8 @@ jobs:
           | GeoJSON | {geojson['results']['total_time_s']}s | {geojson['results']['parquet_tiles']} | {geojson['results']['total_rows']:,} |
 
           ## Configuration
-          - num_tiles: 40
-          - zoom: 10
+          - num_tiles: 10
+          - zoom: 5
           - threshold: 500,000
           """
 

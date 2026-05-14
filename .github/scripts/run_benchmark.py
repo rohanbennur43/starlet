@@ -31,8 +31,8 @@ def run_benchmark(input_path, format_name, output_dir):
     tile_result, mvt_result = starlet.build(
         input=input_path,
         outdir=output_dir,
-        num_tiles=40,
-        zoom=10,
+        num_tiles=10,
+        zoom=5,
         threshold=500000
     )
 
@@ -47,8 +47,8 @@ def run_benchmark(input_path, format_name, output_dir):
         'input_size_mb': 1024 if format_name == 'parquet' else 1536,
         'features': 184746,
         'config': {
-            'num_tiles': 40,
-            'zoom': 10,
+            'num_tiles': 10,
+            'zoom': 5,
             'threshold': 500000
         },
         'results': {
