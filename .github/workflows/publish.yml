@@ -84,8 +84,8 @@ jobs:
       - name: Download benchmark dataset
         run: |
           mkdir -p benchmark_data
-          curl -L -o benchmark_data/TIGER2018_RAILS.parquet \
-            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/TIGER2018_RAILS.parquet
+          curl -L -o benchmark_data/asia_postal_codes.parquet \
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.parquet
           ls -lh benchmark_data/
 
       - name: Run Parquet Benchmark
@@ -119,7 +119,7 @@ jobs:
 
           md = f"""# Performance Benchmark - {release_tag}
 
-          **Dataset:** TIGER2018_RAILS (145K features, 49MB)
+          **Dataset:** asia_postal_codes (184K features, 1GB)
           **Date:** {combined['date'].split('T')[0]}
 
           ## Results

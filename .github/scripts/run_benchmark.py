@@ -50,9 +50,9 @@ def run_benchmark(input_path, format_name, output_dir):
     stats = {
         'version': version,
         'format': format_name,
-        'dataset': 'TIGER2018_RAILS',
-        'input_size_mb': 49,
-        'features': 145356,
+        'dataset': 'asia_postal_codes',
+        'input_size_mb': 1024,
+        'features': 184338,
         'config': {
             'num_tiles': 10,
             'zoom': 5,
@@ -84,7 +84,7 @@ def main():
 
     format_name = sys.argv[1]
 
-    input_path = 'benchmark_data/TIGER2018_RAILS.parquet'
+    input_path = 'benchmark_data/asia_postal_codes.parquet'
     output_dir = 'benchmark_output_parquet'
 
     stats = run_benchmark(input_path, format_name, output_dir)
