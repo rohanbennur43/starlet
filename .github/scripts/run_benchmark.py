@@ -19,11 +19,17 @@ logger = logging.getLogger(__name__)
 def run_benchmark(input_path, format_name, output_dir):
     """Run a single benchmark and return stats."""
     import starlet
+    import multiprocessing
+
+    # Detect available CPU cores and cap parallel files accordingly
+    cpu_count = multiprocessing.cpu_count()
+    max_parallel = max(2, cpu_count)  # At least 2, use all available cores
 
     logger.info(f"=" * 80)
     logger.info(f"Starting {format_name.upper()} benchmark")
     logger.info(f"Input: {input_path}")
     logger.info(f"Output: {output_dir}")
+    logger.info(f"Detected CPUs: {cpu_count}, setting max_parallel_files={max_parallel}")
     logger.info(f"=" * 80)
 
     start = time.time()
@@ -34,7 +40,7 @@ def run_benchmark(input_path, format_name, output_dir):
         num_tiles=10,
         zoom=5,
         threshold=50000,
-        max_parallel_files=4  # Cap for 2-core CI runner
+        max_parallel_files=max_parallel
     )
 
     elapsed = time.time() - start
