@@ -236,8 +236,10 @@ def build(
     zoom: int = 7,
     num_tiles: int = 40,
     threshold: float = 100_000,
+    pmtiles: bool = False,
+    pmtiles_compression: str = "gzip",
     **tile_kwargs,
-) -> tuple[TileResult, MVTResult]:
+) -> tuple[TileResult, MVTResult, str | None]:
     """Run the full pipeline: tile then generate MVTs.
 
     Parameters
@@ -252,16 +254,41 @@ def build(
         Target number of spatial partitions.
     threshold : float
         Minimum feature count per MVT tile.
+    pmtiles : bool
+        If True, export MVT tiles to a PMTiles archive after generation.
+        Default False.
+    pmtiles_compression : str
+        Compression for PMTiles export: "gzip", "brotli", "zstd", "none".
+        Default "gzip". Only used if pmtiles=True.
     **tile_kwargs
         Additional keyword arguments forwarded to :func:`tile`.
 
     Returns
     -------
-    tuple[TileResult, MVTResult]
+    tuple[TileResult, MVTResult, str | None]
+        Returns (tile_result, mvt_result, pmtiles_path).
+        pmtiles_path is None if pmtiles=False.
     """
+    from pathlib import Path
+
     tile_result = tile(input=input, outdir=outdir, num_tiles=num_tiles, **tile_kwargs)
     mvt_result = generate_mvt(tile_dir=outdir, zoom=zoom, threshold=threshold)
-    return tile_result, mvt_result
+
+    pmtiles_path = None
+    if pmtiles:
+        from starlet._internal.pmtiles.exporter import export_to_pmtiles
+
+        dataset_name = Path(outdir).name
+        pmtiles_path = str(Path(outdir).parent / f"{dataset_name}.pmtiles")
+
+        export_to_pmtiles(
+            mvt_dir=str(Path(outdir) / "mvt"),
+            output_path=pmtiles_path,
+            tile_type="mvt",
+            compression=pmtiles_compression,
+        )
+
+    return tile_result, mvt_result, pmtiles_path
 
 
 def export_pmtiles(

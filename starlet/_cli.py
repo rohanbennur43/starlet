@@ -109,22 +109,28 @@ def mvt(tile_dir, zoom, threshold, outdir, log_level):
 @click.option("--zoom", type=int, default=7, show_default=True, help="Maximum zoom level.")
 @click.option("--num-tiles", type=int, default=40, show_default=True, help="Target number of spatial partitions.")
 @click.option("--threshold", type=float, default=100000, show_default=True, help="Minimum feature count per MVT tile.")
+@click.option("--pmtiles", is_flag=True, help="Export MVT tiles to PMTiles archive after generation.")
+@click.option("--pmtiles-compression", default="gzip", show_default=True, type=click.Choice(["gzip", "brotli", "zstd", "none"]), help="PMTiles compression format.")
 @click.option("--log-level", default="INFO", show_default=True, help="Logging level.")
-def build(input_path, outdir, zoom, num_tiles, threshold, log_level):
+def build(input_path, outdir, zoom, num_tiles, threshold, pmtiles, pmtiles_compression, log_level):
     """Run the full pipeline: tile then generate MVTs."""
     _setup_logging(log_level)
     import starlet
 
-    tile_result, mvt_result = starlet.build(
+    tile_result, mvt_result, pmtiles_path = starlet.build(
         input=input_path,
         outdir=outdir,
         zoom=zoom,
         num_tiles=num_tiles,
         threshold=threshold,
+        pmtiles=pmtiles,
+        pmtiles_compression=pmtiles_compression,
     )
     click.echo(f"Build complete:")
     click.echo(f"  Tiles: {tile_result.num_files} files, {tile_result.total_rows} rows")
     click.echo(f"  MVTs: {mvt_result.tile_count} tiles across zoom levels {mvt_result.zoom_levels}")
+    if pmtiles_path:
+        click.echo(f"  PMTiles: {pmtiles_path}")
 
 
 @main.command()
