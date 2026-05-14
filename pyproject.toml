@@ -33,7 +33,6 @@ include = ["starlet*"]
 
 [tool.setuptools.package-data]
 "starlet._internal.server" = ["templates/*.html", "*.html"]
-"starlet._internal.server.llm" = ["prompt.md"]
 
 [project.optional-dependencies]
 dev = [
