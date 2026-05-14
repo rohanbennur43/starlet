@@ -60,6 +60,175 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+  benchmark:
+    name: Run Performance Benchmarks
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev
+
+      - name: Install starlet
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Download benchmark dataset
+        run: |
+          mkdir -p benchmark_data
+          curl -L -o benchmark_data/asia_postal_codes.parquet \
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.parquet
+          curl -L -o benchmark_data/asia_postal_codes.geojson \
+            https://github.com/rohanbennur43/starlet/releases/download/datasets-v1.0/asia_postal_codes.geojson
+          ls -lh benchmark_data/
+
+      - name: Run Parquet Benchmark
+        id: bench_parquet
+        run: |
+          python -c "
+          import starlet
+          import time
+          import json
+          from pathlib import Path
+
+          start = time.time()
+          result = starlet.build(
+              input='benchmark_data/asia_postal_codes.parquet',
+              outdir='benchmark_output_parquet',
+              num_tiles=40,
+              zoom=10,
+              threshold=500000
+          )
+          elapsed = time.time() - start
+
+          version = starlet.__version__
+
+          stats = {
+              'version': version,
+              'format': 'parquet',
+              'dataset': 'asia_postal_codes',
+              'input_size_mb': 1024,
+              'features': 184746,
+              'config': {
+                  'num_tiles': 40,
+                  'zoom': 10,
+                  'threshold': 500000
+              },
+              'results': {
+                  'total_time_s': round(elapsed, 2),
+                  'parquet_tiles': result[0].num_files,
+                  'total_rows': result[0].total_rows
+              }
+          }
+
+          Path('benchmark_parquet.json').write_text(json.dumps(stats, indent=2))
+          print(f'Parquet benchmark: {elapsed:.2f}s')
+          "
+
+      - name: Run GeoJSON Benchmark
+        id: bench_geojson
+        run: |
+          python -c "
+          import starlet
+          import time
+          import json
+          from pathlib import Path
+
+          start = time.time()
+          result = starlet.build(
+              input='benchmark_data/asia_postal_codes.geojson',
+              outdir='benchmark_output_geojson',
+              num_tiles=40,
+              zoom=10,
+              threshold=500000
+          )
+          elapsed = time.time() - start
+
+          version = starlet.__version__
+
+          stats = {
+              'version': version,
+              'format': 'geojson',
+              'dataset': 'asia_postal_codes',
+              'input_size_mb': 1536,
+              'features': 184746,
+              'config': {
+                  'num_tiles': 40,
+                  'zoom': 10,
+                  'threshold': 500000
+              },
+              'results': {
+                  'total_time_s': round(elapsed, 2),
+                  'parquet_tiles': result[0].num_files,
+                  'total_rows': result[0].total_rows
+              }
+          }
+
+          Path('benchmark_geojson.json').write_text(json.dumps(stats, indent=2))
+          print(f'GeoJSON benchmark: {elapsed:.2f}s')
+          "
+
+      - name: Combine Results
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+          from datetime import datetime
+
+          parquet = json.loads(Path('benchmark_parquet.json').read_text())
+          geojson = json.loads(Path('benchmark_geojson.json').read_text())
+
+          combined = {
+              'version': parquet['version'],
+              'date': datetime.now().isoformat(),
+              'benchmarks': [parquet, geojson]
+          }
+
+          filename = f\"benchmark-{parquet['version']}.json\"
+          Path(filename).write_text(json.dumps(combined, indent=2))
+
+          md = f'''# Performance Benchmark - v{parquet['version']}
+
+**Dataset:** asia_postal_codes (184,746 features)
+**Date:** {combined['date'].split('T')[0]}
+
+## Results
+
+| Format | Time | Tiles | Rows |
+|--------|------|-------|------|
+| Parquet | {parquet['results']['total_time_s']}s | {parquet['results']['parquet_tiles']} | {parquet['results']['total_rows']:,} |
+| GeoJSON | {geojson['results']['total_time_s']}s | {geojson['results']['parquet_tiles']} | {geojson['results']['total_rows']:,} |
+
+## Configuration
+- num_tiles: 40
+- zoom: 10
+- threshold: 500,000
+'''
+
+          Path('benchmark_summary.md').write_text(md)
+          print(md)
+          "
+
+      - name: Upload benchmark results to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(python -c "import starlet; print(starlet.__version__)")
+          gh release upload ${{ github.ref_name }} \
+            benchmark-${VERSION}.json \
+            benchmark_summary.md \
+            --clobber
+
   publish:
     name: Publish to PyPI
     needs: build
