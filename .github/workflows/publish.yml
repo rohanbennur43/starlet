@@ -138,6 +138,7 @@ jobs:
           python summary.py
 
       - name: Upload benchmark results to release
+        if: "!contains(github.ref_name, '-test')"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
