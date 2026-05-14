@@ -96,13 +96,17 @@ jobs:
           echo "::endgroup::"
 
       - name: Create Summary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cat > summary.py << 'SCRIPT'
           import json
+          import os
           from pathlib import Path
           from datetime import datetime
 
           result = json.loads(Path('benchmark_parquet.json').read_text())
+          release_tag = os.environ.get('RELEASE_TAG', result['version'])
 
           combined = {
               'version': result['version'],
@@ -110,10 +114,10 @@ jobs:
               'benchmarks': [result]
           }
 
-          filename = f"benchmark-{result['version']}.json"
+          filename = f"benchmark-{release_tag}.json"
           Path(filename).write_text(json.dumps(combined, indent=2))
 
-          md = f"""# Performance Benchmark - v{result['version']}
+          md = f"""# Performance Benchmark - {release_tag}
 
           **Dataset:** TIGER2018_RAILS (145K features, 49MB)
           **Date:** {combined['date'].split('T')[0]}
